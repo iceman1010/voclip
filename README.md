@@ -54,13 +54,45 @@ cp target/release/voclip ~/.local/bin/
 
 ## Configuration
 
-Set your AssemblyAI API key as an environment variable:
+### Get an API key
+
+1. Go to [assemblyai.com](https://www.assemblyai.com/) and create a free account
+2. Navigate to your [Dashboard](https://www.assemblyai.com/app)
+3. Copy your API key from the dashboard
+
+### Set the API key
+
+#### Linux / macOS
+
+Add to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.):
 
 ```bash
 export ASSEMBLYAI_API_KEY=your_key_here
 ```
 
-Or create a `.env` file in the directory you run voclip from:
+Then reload your shell (`source ~/.bashrc`) or open a new terminal.
+
+#### Windows (Command Prompt)
+
+Set it permanently for your user account:
+
+```cmd
+setx ASSEMBLYAI_API_KEY your_key_here
+```
+
+Then open a new Command Prompt window (setx changes don't apply to the current window).
+
+#### Windows (PowerShell)
+
+```powershell
+[System.Environment]::SetEnvironmentVariable("ASSEMBLYAI_API_KEY", "your_key_here", "User")
+```
+
+Then open a new PowerShell window.
+
+#### Alternative: .env file (all platforms)
+
+Create a `.env` file in the directory you run voclip from:
 
 ```
 ASSEMBLYAI_API_KEY=your_key_here
