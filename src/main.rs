@@ -58,13 +58,16 @@ async fn run(args: &config::Args) -> Result<(), VoclipError> {
     eprintln!("Authenticating...");
     let token = token::fetch_token(&config.api_key).await?;
 
-    if let Err(e) = beep::play_start_beep() {
-        eprintln!("Start beep failed: {e}");
-    }
-
     let (audio_tx, audio_rx) = tokio::sync::mpsc::channel::<Vec<i16>>(50);
     let capture = audio_capture::start_capture(audio_tx)?;
     let device_rate = capture.device_sample_rate;
+
+    eprintln!("Recording starts in {}s...", config.delay);
+    tokio::time::sleep(std::time::Duration::from_secs(config.delay as u64)).await;
+
+    if let Err(e) = beep::play_start_beep() {
+        eprintln!("Start beep failed: {e}");
+    }
 
     eprintln!("Listening... (speak, then wait {}s silence to finish, or Ctrl+C)", config.timeout);
 

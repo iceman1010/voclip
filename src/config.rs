@@ -16,12 +16,17 @@ pub struct Args {
     /// Language code or "multi" for auto-detect
     #[arg(long, default_value = "multi")]
     pub language: String,
+
+    /// Delay in seconds before starting to record (default: 1)
+    #[arg(long, default_value_t = 1)]
+    pub delay: u32,
 }
 
 pub struct Config {
     pub api_key: String,
     pub timeout: u32,
     pub language: String,
+    pub delay: u32,
 }
 
 impl Config {
@@ -35,6 +40,7 @@ impl Config {
             api_key,
             timeout: args.timeout,
             language: args.language.clone(),
+            delay: args.delay,
         })
     }
 }
