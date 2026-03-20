@@ -56,9 +56,15 @@ cp target/release/voclip ~/.local/bin/
 
 Download from [GitHub Releases](https://github.com/iceman1010/voclip/releases):
 
-- **Linux**: Requires GLIBC 2.39+ (Ubuntu 24.04+, Debian 12+, etc.)
+- **Linux**: Requires GLIBC 2.39+ (Ubuntu 24.04+, Debian 12+, Fedora 40+, etc.)
 - **macOS**: Universal binary (Intel + Apple Silicon)
 - **Windows**: x86_64 binary
+
+> **Note for older Linux distributions**: If you see an error like `GLIBC_2.XX not found`,
+> your system is too old for the pre-built binaries. Please build from source instead:
+> ```bash
+> cargo install voclip
+> ```
 
 ## Configuration
 
@@ -112,8 +118,10 @@ ASSEMBLYAI_API_KEY=your_key_here
 voclip [OPTIONS]
 
 Options:
+  --update               Check for updates and self-update if a newer version is available
   --timeout <SECONDS>    Silence timeout in seconds (default: 3)
   --language <CODE>      Language code or "multi" for auto-detect (default: "multi")
+  --delay <SECONDS>      Delay before recording starts (default: 1)
   -h, --help             Print help
 ```
 
