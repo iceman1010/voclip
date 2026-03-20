@@ -52,6 +52,14 @@ The binary is at `target/release/voclip`. Copy it to a directory in your `$PATH`
 cp target/release/voclip ~/.local/bin/
 ```
 
+### Pre-built Binaries
+
+Download from [GitHub Releases](https://github.com/iceman1010/voclip/releases):
+
+- **Linux**: Requires GLIBC 2.39+ (Ubuntu 24.04+, Debian 12+, etc.)
+- **macOS**: Universal binary (Intel + Apple Silicon)
+- **Windows**: x86_64 binary
+
 ## Configuration
 
 ### Get an API key
@@ -132,6 +140,18 @@ voclip --timeout 2
 6. Plays a falling beep to confirm, then exits
 
 Press `Ctrl+C` at any time to stop early.
+
+### Auto-Update
+
+voclip can update itself to the latest version:
+
+```bash
+voclip --update
+```
+
+### Keyboard Shortcut
+
+See the [installer documentation](install/README.md) for setting up a global hotkey to trigger voclip.
 
 ## Supported Platforms
 
