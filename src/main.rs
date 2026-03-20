@@ -11,64 +11,16 @@ mod websocket;
 use clap::Parser;
 use config::Config;
 use error::VoclipError;
+use single_instance::SingleInstance;
 
-#[cfg(unix)]
-mod lock {
-    use std::fs::{self, OpenOptions};
-    use std::io::{self, Write};
-    use std::os::fd::AsRawFd;
-    use std::path::PathBuf;
-
-    pub fn get_lock_path() -> PathBuf {
-        #[cfg(target_os = "linux")]
-        {
-            if let Ok(xdg) = std::env::var("XDG_RUNTIME_DIR") {
-                return PathBuf::from(xdg).join("voclip.lock");
-            }
-            if let Ok(uid) = std::env::var("UID") {
-                return PathBuf::from(format!("/run/user/{uid}/voclip.lock"));
-            }
-        }
-        PathBuf::from("/tmp/voclip.lock")
-    }
-
-    #[allow(deprecated)]
-    pub fn acquire_lock() -> io::Result<std::fs::File> {
-        let lock_path = get_lock_path();
-        if let Some(parent) = lock_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let mut file = OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .open(&lock_path)?;
-        let fd = file.as_raw_fd();
-        match nix::fcntl::flock(fd, nix::fcntl::FlockArg::LockExclusiveNonblock) {
-            Ok(()) => {
-                let pid = std::process::id().to_string();
-                file.set_len(0)?;
-                file.write_all(pid.as_bytes())?;
-                file.flush()?;
-                Ok(file)
-            }
-            Err(e) => Err(io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                format!("Another instance of voclip is already running: {e}"),
-            )),
-        }
-    }
-}
-
-#[cfg(not(unix))]
-mod lock {
-    use std::io;
-
-    pub fn acquire_lock() -> io::Result<std::fs::File> {
-        Err(io::Error::new(
-            io::ErrorKind::Other,
-            "Single-instance lock not supported on this platform",
-        ))
+fn acquire_lock() -> Result<SingleInstance, String> {
+    let instance = SingleInstance::new("voclip").map_err(|e| {
+        format!("Failed to create lock: {e}")
+    })?;
+    if instance.is_single() {
+        Ok(instance)
+    } else {
+        Err("Another instance of voclip is already running".to_string())
     }
 }
 
@@ -76,23 +28,20 @@ mod lock {
 async fn main() {
     let args = config::Args::parse();
 
+    let _lock = match acquire_lock() {
+        Ok(lock) => lock,
+        Err(e) => {
+            eprintln!("Error: {e}");
+            std::process::exit(1);
+        }
+    };
+
     if args.update {
         if let Err(e) = update::update() {
             eprintln!("Update failed: {e}");
             std::process::exit(1);
         }
         return;
-    }
-
-    #[cfg(unix)]
-    {
-        let _lock = match lock::acquire_lock() {
-            Ok(lock) => lock,
-            Err(e) => {
-                eprintln!("Error: {e}");
-                std::process::exit(1);
-            }
-        };
     }
 
     if let Err(e) = run(&args).await {
