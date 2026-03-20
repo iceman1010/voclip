@@ -5,21 +5,85 @@ mod config;
 mod error;
 mod resample;
 mod token;
+mod update;
 mod websocket;
 
+use clap::Parser;
 use config::Config;
 use error::VoclipError;
+use std::fs::{self, OpenOptions};
+use std::io::{self, Write};
+use std::os::fd::AsRawFd;
+use std::path::PathBuf;
+
+fn get_lock_path() -> PathBuf {
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(xdg) = std::env::var("XDG_RUNTIME_DIR") {
+            return PathBuf::from(xdg).join("voclip.lock");
+        }
+        if let Ok(uid) = std::env::var("UID") {
+            return PathBuf::from(format!("/run/user/{uid}/voclip.lock"));
+        }
+    }
+    PathBuf::from("/tmp/voclip.lock")
+}
+
+#[allow(deprecated)]
+fn acquire_lock() -> io::Result<std::fs::File> {
+    let lock_path = get_lock_path();
+    if let Some(parent) = lock_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut file = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(&lock_path)?;
+    let fd = file.as_raw_fd();
+    match nix::fcntl::flock(fd, nix::fcntl::FlockArg::LockExclusiveNonblock) {
+        Ok(()) => {
+            let pid = std::process::id().to_string();
+            file.set_len(0)?;
+            file.write_all(pid.as_bytes())?;
+            file.flush()?;
+            Ok(file)
+        }
+        Err(e) => Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!("Another instance of voclip is already running: {e}"),
+        )),
+    }
+}
 
 #[tokio::main]
 async fn main() {
-    if let Err(e) = run().await {
+    let args = config::Args::parse();
+
+    if args.update {
+        if let Err(e) = update::update() {
+            eprintln!("Update failed: {e}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
+    let _lock = match acquire_lock() {
+        Ok(lock) => lock,
+        Err(e) => {
+            eprintln!("Error: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    if let Err(e) = run(&args).await {
         eprintln!("Error: {e}");
         std::process::exit(1);
     }
 }
 
-async fn run() -> Result<(), VoclipError> {
-    let config = Config::load()?;
+async fn run(args: &config::Args) -> Result<(), VoclipError> {
+    let config = Config::load(args)?;
 
     clipboard::check_clipboard_deps();
 
