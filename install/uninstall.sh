@@ -1,14 +1,10 @@
 #!/usr/bin/env bash
 #
-# voclip uninstaller - Linux & Windows
+# voclip uninstaller - Linux (GNOME & XFCE)
 #
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Colors
-RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
@@ -16,219 +12,131 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 RESET='\033[0m'
 
-print_step() {
-    echo ""
-    echo -e "${BLUE}➜${RESET} ${BOLD}$1${RESET}"
-}
+print_step()    { echo ""; echo -e "${BLUE}➜${RESET} ${BOLD}$1${RESET}"; }
+print_success() { echo -e "${GREEN}✓${RESET} $1"; }
+print_warning() { echo -e "${YELLOW}⚠${RESET} $1"; }
 
-print_success() {
-    echo -e "${GREEN}✓${RESET} $1"
-}
+removed=false
 
-print_error() {
-    echo -e "${RED}✗${RESET} $1" >&2
-}
-
-print_warning() {
-    echo -e "${YELLOW}⚠${RESET} $1"
-}
-
-# Detect OS
-detect_os() {
-    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        echo "linux"
-    elif [[ "$OSTYPE" == "darwin"* ]]; then
-        echo "macos"
-    elif [[ "$OSTYPE" == "cygwin" ]] || [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "win32" ]]; then
-        echo "windows"
-    else
-        echo "unknown"
-    fi
-}
-
-# Linux uninstaller
-uninstall_linux() {
-    echo ""
-    echo -e "${CYAN}╭─────────────────────────────────────────────────────────╮${RESET}"
-    echo -e "${CYAN}│${RESET}           ${BOLD}voclip Linux Uninstaller${RESET}                    ${CYAN}│${RESET}"
-    echo -e "${CYAN}╰─────────────────────────────────────────────────────────╯${RESET}"
-    
-    local removed=false
-    
-    # Remove wrapper script
-    print_step "Removing wrapper script..."
-    local wrapper="$HOME/.local/bin/voclip-run"
-    if [[ -f "$wrapper" ]]; then
-        rm -f "$wrapper"
-        print_success "Removed: $wrapper"
+remove_file() {
+    local path="$1"
+    local label="$2"
+    print_step "Removing $label..."
+    if [[ -f "$path" ]]; then
+        rm -f "$path"
+        print_success "Removed: $path"
         removed=true
     else
-        print_warning "Wrapper not found: $wrapper"
+        print_warning "Not found: $path"
     fi
-    
-    # Remove desktop file
-    print_step "Removing autostart desktop file..."
-    local desktop="$HOME/.config/autostart/voclip.desktop"
-    if [[ -f "$desktop" ]]; then
-        rm -f "$desktop"
-        print_success "Removed: $desktop"
-        removed=true
-    else
-        print_warning "Desktop file not found: $desktop"
+}
+
+remove_gnome_hotkey() {
+    if ! command -v gsettings &>/dev/null; then
+        return
     fi
-    
-    # Remove GNOME hotkey
-    print_step "Removing GNOME hotkey registration..."
-    local CUSTOM_KEYS="org.gnome.settings-daemon.plugins.media-keys.custom-keybindings"
+
+    print_step "Removing GNOME hotkey..."
+
+    local SCHEMA="org.gnome.settings-daemon.plugins.media-keys"
+    local BASE_PATH="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings"
+    local KEY_SCHEMA="org.gnome.settings-daemon.plugins.media-keys.custom-keybinding"
     local found=false
-    
-    # Search for voclip in custom keybindings
-    for i in {0..9}; do
-        local key_path="$CUSTOM_KEYS/custom$i"
-        local name=$(gsettings get "$key_path" name 2>/dev/null || echo "")
+
+    for i in $(seq 0 19); do
+        local path="$BASE_PATH/custom$i/"
+        local name
+        name=$(gsettings get "$KEY_SCHEMA:$path" name 2>/dev/null || echo "")
         if [[ "$name" == "'voclip'" ]]; then
-            gsettings set "$key_path" binding "''" 2>/dev/null || true
-            gsettings set "$key_path" enabled false 2>/dev/null || true
-            print_success "Removed hotkey from: $key_path"
+            gsettings reset "$KEY_SCHEMA:$path" name 2>/dev/null || true
+            gsettings reset "$KEY_SCHEMA:$path" binding 2>/dev/null || true
+            gsettings reset "$KEY_SCHEMA:$path" command 2>/dev/null || true
+
+            local existing
+            existing=$(gsettings get "$SCHEMA" custom-keybindings 2>/dev/null || echo "[]")
+            local new_list
+            new_list=$(echo "$existing" | sed "s|'$path'||g" | sed "s|, ,|,|g" | sed "s|\[, |\[|" | sed "s|, \]|\]|")
+            gsettings set "$SCHEMA" custom-keybindings "$new_list" 2>/dev/null || true
+
+            print_success "Removed GNOME hotkey: $path"
             found=true
             removed=true
         fi
     done
-    
+
     if [[ "$found" == "false" ]]; then
         print_warning "No voclip hotkey found in GNOME settings"
     fi
-    
-    # Summary
-    echo ""
-    if [[ "$removed" == "true" ]]; then
-        echo -e "${GREEN}╔═══════════════════════════════════════════════════════════╗${RESET}"
-        echo -e "${GREEN}║$RESET              ${BOLD}Uninstallation Complete!${RESET}                    ${GREEN}║${RESET}"
-        echo -e "${GREEN}╠═══════════════════════════════════════════════════════════╣${RESET}"
-        echo -e "${GREEN}║$RESET                                                           ${GREEN}║${RESET}"
-        echo -e "${GREEN}║$RESET   ${GREEN}✓${RESET} Removed wrapper script                              ${GREEN}║${RESET}"
-        echo -e "${GREEN}║$RESET   ${GREEN}✓${RESET} Removed hotkey registration                          ${GREEN}║${RESET}"
-        echo -e "${GREEN}║$RESET   ${GREEN}✓${RESET} Removed autostart entry                              ${GREEN}║${RESET}"
-        echo -e "${GREEN}║$RESET                                                           ${GREEN}║${RESET}"
-        echo -e "${GREEN}╚═══════════════════════════════════════════════════════════╝${RESET}"
-    else
-        echo -e "${YELLOW}╔═══════════════════════════════════════════════════════════╗${RESET}"
-        echo -e "${YELLOW}║$RESET              ${BOLD}Nothing to Remove${RESET}                            ${YELLOW}║${RESET}"
-        echo -e "${YELLOW}╠═══════════════════════════════════════════════════════════╣${RESET}"
-        echo -e "${YELLOW}║$RESET                                                           ${YELLOW}║${RESET}"
-        echo -e "${YELLOW}║$RESET   No voclip installation found to remove.                ${YELLOW}║${RESET}"
-        echo -e "${YELLOW}║$RESET                                                           ${YELLOW}║${RESET}"
-        echo -e "${YELLOW}╚═══════════════════════════════════════════════════════════╝${RESET}"
+}
+
+remove_xfce_hotkey() {
+    if ! command -v xfconf-query &>/dev/null; then
+        return
+    fi
+
+    print_step "Removing XFCE hotkey..."
+
+    local channel="xfce4-keyboard-shortcuts"
+    local found=false
+
+    local bindings
+    bindings=$(xfconf-query -c "$channel" -l -v 2>/dev/null | grep "voclip" || true)
+    if [[ -n "$bindings" ]]; then
+        while IFS= read -r line; do
+            local prop
+            prop=$(echo "$line" | awk '{print $1}')
+            xfconf-query -c "$channel" -p "$prop" -r 2>/dev/null || true
+            print_success "Removed XFCE hotkey: $prop"
+            found=true
+            removed=true
+        done <<< "$bindings"
+    fi
+
+    if [[ "$found" == "false" ]]; then
+        print_warning "No voclip hotkey found in XFCE settings"
     fi
 }
 
-# Windows uninstaller
-uninstall_windows() {
-    echo ""
-    echo -e "${CYAN}╭─────────────────────────────────────────────────────────╮${RESET}"
-    echo -e "${CYAN}│${RESET}          ${BOLD}voclip Windows Uninstaller${RESET}                    ${CYAN}│${RESET}"
-    echo -e "${CYAN}╰─────────────────────────────────────────────────────────╯${RESET}"
-    
-    local removed=false
-    
-    # Remove wrapper script
-    print_step "Removing wrapper script..."
-    local wrapper="$LOCALAPPDATA\voclip\voclip-run.bat"
-    if [[ -f "$wrapper" ]]; then
-        rm -f "$wrapper"
-        print_success "Removed: $wrapper"
-        removed=true
-    else
-        print_warning "Wrapper not found: $wrapper"
-    fi
-    
-    # Remove autostart shortcut
-    print_step "Removing autostart shortcut..."
-    local shortcut="$APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\voclip.lnk"
-    if [[ -f "$shortcut" ]]; then
-        rm -f "$shortcut"
-        print_success "Removed: $shortcut"
-        removed=true
-    else
-        print_warning "Shortcut not found: $shortcut"
-    fi
-    
-    # Remove scheduled task (hotkey service)
-    print_step "Removing hotkey service..."
-    if [[ "$OSTYPE" == "cygwin" ]] || [[ "$OSTYPE" == "msys" ]]; then
-        # In Git Bash/MSYS
-        local taskName="voclip-Hotkey"
-    else
-        local taskName="voclip-Hotkey"
-    fi
-    
-    powershell -Command "Unregister-ScheduledTask -TaskName 'voclip-Hotkey' -Confirm:\$false -ErrorAction SilentlyContinue" 2>/dev/null || true
-    print_success "Removed hotkey service (if existed)"
-    removed=true
-    
-    # Remove voclip directory if empty
-    print_step "Cleaning up..."
-    local voclipDir="$LOCALAPPDATA\voclip"
-    if [[ -d "$voclipDir" ]]; then
-        if [[ -z "$(ls -A "$voclipDir" 2>/dev/null)" ]]; then
-            rmdir "$voclipDir" 2>/dev/null || true
-            print_success "Removed empty directory: $voclipDir"
-        else
-            print_info "Kept non-empty directory: $voclipDir"
-        fi
-    fi
-    
-    # Summary
-    echo ""
-    if [[ "$removed" == "true" ]]; then
-        echo -e "${GREEN}╔═══════════════════════════════════════════════════════════╗${RESET}"
-        echo -e "${GREEN}║$RESET              ${BOLD}Uninstallation Complete!${RESET}                    ${GREEN}║${RESET}"
-        echo -e "${GREEN}╠═══════════════════════════════════════════════════════════╣${RESET}"
-        echo -e "${GREEN}║$RESET                                                           ${GREEN}║${RESET}"
-        echo -e "${GREEN}║$RESET   ${GREEN}✓${RESET} Removed wrapper script                              ${GREEN}║${RESET}"
-        echo -e "${GREEN}║$RESET   ${GREEN}✓${RESET} Removed hotkey registration                          ${GREEN}║${RESET}"
-        echo -e "${GREEN}║$RESET   ${GREEN}✓${RESET} Removed autostart entry                              ${GREEN}║${RESET}"
-        echo -e "${GREEN}║$RESET                                                           ${GREEN}║${RESET}"
-        echo -e "${GREEN}╚═══════════════════════════════════════════════════════════╝${RESET}"
-    else
-        echo -e "${YELLOW}╔═══════════════════════════════════════════════════════════╗${RESET}"
-        echo -e "${YELLOW}║$RESET              ${BOLD}Nothing to Remove${RESET}                            ${YELLOW}║${RESET}"
-        echo -e "${YELLOW}╠═══════════════════════════════════════════════════════════╣${RESET}"
-        echo -e "${YELLOW}║$RESET                                                           ${YELLOW}║${RESET}"
-        echo -e "${YELLOW}║$RESET   No voclip installation found to remove.                ${YELLOW}║${RESET}"
-        echo -e "${YELLOW}║$RESET                                                           ${YELLOW}║${RESET}"
-        echo -e "${YELLOW}╚═══════════════════════════════════════════════════════════╝${RESET}"
-    fi
-}
-
-# Main
 main() {
     echo ""
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════════╗${RESET}"
-    echo -e "${CYAN}║$RESET                  ${BOLD}voclip Uninstaller${RESET}                       ${CYAN}║${RESET}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════════╝${RESET}"
-    
-    local os=$(detect_os)
-    
+    echo -e "${CYAN}╭─────────────────────────────────────────────────────────╮${RESET}"
+    echo -e "${CYAN}│${RESET}           ${BOLD}voclip Linux Uninstaller${RESET}                    ${CYAN}│${RESET}"
+    echo -e "${CYAN}╰─────────────────────────────────────────────────────────╯${RESET}"
+
+    remove_file "$HOME/.local/bin/voclip-run" "wrapper script"
+    remove_file "$HOME/.config/autostart/voclip.desktop" "autostart entry"
+
+    # Also check for old wrapper location
+    if [[ -f "$HOME/bin/voclip-wrapper" ]]; then
+        remove_file "$HOME/bin/voclip-wrapper" "old wrapper script"
+    fi
+
+    # Remove hotkeys from all supported DEs
+    remove_gnome_hotkey
+    remove_xfce_hotkey
+
+    # Ask about API key file
+    local env_path="$HOME/.config/voclip/.env"
+    if [[ -f "$env_path" ]]; then
+        echo ""
+        echo -ne "${BOLD}Also remove API key file ($env_path)? (y/N)${RESET} "
+        read -r -n 1 reply
+        echo
+        if [[ "$reply" =~ ^[Yy]$ ]]; then
+            rm -f "$env_path"
+            print_success "Removed: $env_path"
+        else
+            print_warning "Kept: $env_path"
+        fi
+    fi
+
     echo ""
-    echo "Detected OS: ${BOLD}${os}${RESET}"
-    
-    case "$os" in
-        linux)
-            uninstall_linux
-            ;;
-        windows|cygwin|msys)
-            uninstall_windows
-            ;;
-        macos)
-            print_error "macOS uninstaller not yet implemented."
-            exit 1
-            ;;
-        *)
-            print_error "Unsupported operating system: $os"
-            exit 1
-            ;;
-    esac
+    if [[ "$removed" == "true" ]]; then
+        echo -e "${GREEN}Uninstallation complete.${RESET}"
+    else
+        echo -e "${YELLOW}Nothing to remove — voclip was not installed via the installer.${RESET}"
+    fi
+    echo ""
 }
 
 main "$@"

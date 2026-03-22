@@ -85,7 +85,12 @@ pub struct Config {
 
 impl Config {
     pub fn load(args: &Args) -> Result<Self, VoclipError> {
+        // Load .env from current directory (if present)
         let _ = dotenvy::dotenv();
+        // Also load from ~/.config/voclip/.env (for hotkey/autostart use)
+        if let Some(config_dir) = dirs_next::config_dir() {
+            let _ = dotenvy::from_path(config_dir.join("voclip").join(".env"));
+        }
 
         let api_key =
             std::env::var("ASSEMBLYAI_API_KEY").map_err(|_| VoclipError::MissingApiKey)?;
