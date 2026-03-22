@@ -111,6 +111,7 @@ async fn main() {
     }
 
     if let Err(e) = run(&args).await {
+        let _ = beep::play_error_beep();
         eprintln!("Error: {e}");
         std::process::exit(1);
     }

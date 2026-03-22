@@ -16,6 +16,12 @@ pub fn play_stop_beep() -> Result<(), VoclipError> {
     play_tones(tones)
 }
 
+/// Sad descending "womp womp" tone for errors
+pub fn play_error_beep() -> Result<(), VoclipError> {
+    let tones = &[(400.0, 200), (200.0, 200), (350.0, 200), (175.0, 200)];
+    play_tones(tones)
+}
+
 fn play_tones(tones: &[(f32, u32)]) -> Result<(), VoclipError> {
     let sample_rate = 44100u32;
     let fade_samples = (sample_rate as f32 * 0.005) as usize; // 5ms fade
@@ -61,8 +67,8 @@ fn play_tones(tones: &[(f32, u32)]) -> Result<(), VoclipError> {
         wav.extend_from_slice(&s.to_le_bytes());
     }
 
-    let (_stream, handle) = rodio::OutputStream::try_default()
-        .map_err(|e| VoclipError::Playback(e.to_string()))?;
+    let (_stream, handle) =
+        rodio::OutputStream::try_default().map_err(|e| VoclipError::Playback(e.to_string()))?;
     let source =
         rodio::Decoder::new(Cursor::new(wav)).map_err(|e| VoclipError::Playback(e.to_string()))?;
     let sink = rodio::Sink::try_new(&handle).map_err(|e| VoclipError::Playback(e.to_string()))?;
