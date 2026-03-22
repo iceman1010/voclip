@@ -76,7 +76,7 @@ pub struct Args {
     #[arg(long)]
     pub test_wakeword: bool,
 
-    /// Name/phrase for the wake word (used with --train-wakeword)
+    /// Label for the wake word — cosmetic only, shown in detection logs (used with --train-wakeword)
     #[arg(long, default_value = "hey voclip")]
     pub wakeword_name: String,
 

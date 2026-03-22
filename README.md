@@ -127,7 +127,7 @@ Options:
   --listen                        Always-on wake word mode (output is always typed)
   --train-wakeword                Record voice samples and build a wake word file
   --test-wakeword                 Test/debug wake word detection
-  --wakeword-name <PHRASE>        Wake word phrase (default: "hey voclip")
+  --wakeword-name <PHRASE>        Label for the wake word (cosmetic only, default: "hey voclip")
   --wakeword-samples <N>          Number of training samples (default: 8)
   --wakeword-sensitivity <LEVEL>  Detection sensitivity: low, medium, high (default: medium)
   --list-models                   List available speech models
