@@ -7,6 +7,10 @@ use crate::speech_model::SpeechModel;
 #[derive(Parser, Debug)]
 #[command(name = "voclip", about = "Voice to clipboard — speak and paste")]
 pub struct Args {
+    /// Print version and exit
+    #[arg(long)]
+    pub version: bool,
+
     /// Check for updates and self-update if a newer version is available
     #[arg(long)]
     pub update: bool,
@@ -30,12 +34,18 @@ pub struct Args {
     /// Set the default speech model and save to config
     #[arg(long)]
     pub set_default_model: Option<String>,
+
+    /// Set the default silence timeout (seconds) and save to config
+    #[arg(long)]
+    pub set_default_timeout: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ConfigFile {
     #[serde(default)]
     pub default_model: Option<String>,
+    #[serde(default)]
+    pub default_timeout: Option<u32>,
 }
 
 impl ConfigFile {
@@ -80,20 +90,27 @@ impl Config {
         let api_key =
             std::env::var("ASSEMBLYAI_API_KEY").map_err(|_| VoclipError::MissingApiKey)?;
 
+        let file_config = ConfigFile::load();
+
         let model = if let Some(ref name) = args.model {
             SpeechModel::from_name(name)
                 .ok_or_else(|| VoclipError::InvalidModel(name.clone()))?
         } else {
-            let file_config = ConfigFile::load();
             match file_config.default_model {
                 Some(ref name) => SpeechModel::from_name(name).unwrap_or(SpeechModel::U3RtPro),
                 None => SpeechModel::U3RtPro,
             }
         };
 
+        let timeout = if args.timeout != 3 {
+            args.timeout
+        } else {
+            file_config.default_timeout.unwrap_or(3)
+        };
+
         Ok(Config {
             api_key,
-            timeout: args.timeout,
+            timeout,
             model,
             delay: args.delay,
         })
@@ -107,6 +124,12 @@ pub fn save_default_model(name: &str) -> Result<SpeechModel, VoclipError> {
     config.default_model = Some(model.cli_name().to_string());
     config.save()?;
     Ok(model)
+}
+
+pub fn save_default_timeout(secs: u32) -> Result<(), VoclipError> {
+    let mut config = ConfigFile::load();
+    config.default_timeout = Some(secs);
+    config.save()
 }
 
 pub fn print_models() {

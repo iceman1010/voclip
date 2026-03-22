@@ -58,6 +58,11 @@ impl Drop for PidLock {
 async fn main() {
     let args = config::Args::parse();
 
+    if args.version {
+        println!("voclip {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+
     if args.list_models {
         config::print_models();
         return;
@@ -67,6 +72,19 @@ async fn main() {
         match config::save_default_model(name) {
             Ok(model) => {
                 println!("Default model set to: {} ({})", model, model.description());
+                return;
+            }
+            Err(e) => {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    if let Some(secs) = args.set_default_timeout {
+        match config::save_default_timeout(secs) {
+            Ok(()) => {
+                println!("Default timeout set to: {}s", secs);
                 return;
             }
             Err(e) => {
@@ -115,20 +133,21 @@ async fn run(args: &config::Args) -> Result<(), VoclipError> {
     eprintln!("Recording starts in {}s...", config.delay);
     tokio::time::sleep(std::time::Duration::from_secs(config.delay as u64)).await;
 
+    eprintln!("Connecting...");
+    let (ws_tx, ws_rx) = websocket::connect(
+        &token,
+        config.timeout,
+        config.model.api_name(),
+    )
+    .await?;
+
     if let Err(e) = beep::play_start_beep() {
         eprintln!("Start beep failed: {e}");
     }
 
     eprintln!("Listening... (speak, then wait {}s silence to finish, or Ctrl+C)", config.timeout);
 
-    let result = websocket::run_session(
-        &token,
-        device_rate,
-        config.timeout,
-        config.model.api_name(),
-        audio_rx,
-    )
-    .await?;
+    let result = websocket::stream(ws_tx, ws_rx, device_rate, audio_rx).await?;
 
     drop(capture);
 

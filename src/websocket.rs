@@ -19,13 +19,18 @@ pub struct WsResult {
     pub transcript: String,
 }
 
-pub async fn run_session(
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
+use futures_util::stream::{SplitSink, SplitStream};
+use tokio::net::TcpStream;
+
+type WsTx = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>;
+type WsRx = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
+
+pub async fn connect(
     token: &str,
-    sample_rate: u32,
     timeout_secs: u32,
     speech_model: &str,
-    mut audio_rx: mpsc::Receiver<Vec<i16>>,
-) -> Result<WsResult, VoclipError> {
+) -> Result<(WsTx, WsRx), VoclipError> {
     let timeout_ms = timeout_secs as u64 * 1000;
 
     let url = format!(
@@ -39,7 +44,17 @@ pub async fn run_session(
     );
 
     let (ws_stream, _) = tokio_tungstenite::connect_async(&url).await?;
-    let (mut ws_tx, mut ws_rx) = ws_stream.split();
+    Ok(ws_stream.split())
+}
+
+pub async fn stream(
+    ws_tx: WsTx,
+    ws_rx: WsRx,
+    sample_rate: u32,
+    mut audio_rx: mpsc::Receiver<Vec<i16>>,
+) -> Result<WsResult, VoclipError> {
+    let mut ws_tx = ws_tx;
+    let mut ws_rx = ws_rx;
 
     let mut resampler = Resampler::new(sample_rate, 16000);
 
