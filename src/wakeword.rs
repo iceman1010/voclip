@@ -117,23 +117,25 @@ fn create_detector(
     // Tune detection parameters based on sensitivity
     match sensitivity {
         WakewordSensitivity::Low => {
-            // Fewer false positives, may miss some utterances
             config.detector.threshold = 0.55;
             config.detector.avg_threshold = 0.25;
             config.detector.min_scores = 5;
         }
         WakewordSensitivity::Medium => {
-            // Balanced — good default
             config.detector.threshold = 0.4;
             config.detector.avg_threshold = 0.15;
             config.detector.min_scores = 3;
         }
         WakewordSensitivity::High => {
-            // More detections, may have some false positives
             config.detector.threshold = 0.3;
             config.detector.avg_threshold = 0.1;
             config.detector.min_scores = 2;
             config.detector.eager = true;
+        }
+        WakewordSensitivity::Custom(threshold) => {
+            config.detector.threshold = threshold;
+            config.detector.avg_threshold = threshold * 0.4;
+            config.detector.min_scores = 3;
         }
     }
 
@@ -156,6 +158,7 @@ fn create_detector(
 pub async fn test(
     wakeword_path: &Path,
     sensitivity: WakewordSensitivity,
+    name: &str,
 ) -> Result<(), VoclipError> {
     if !wakeword_path.exists() {
         return Err(VoclipError::WakeWord(format!(
@@ -187,7 +190,7 @@ pub async fn test(
                             if let Some(detection) = detector.process_samples(frame) {
                                 eprintln!(
                                     "  DETECTED: \"{}\" (score: {:.3})",
-                                    detection.name, detection.score
+                                    name, detection.score
                                 );
                                 if let Err(e) = beep::play_start_beep() {
                                     eprintln!("Beep failed: {e}");

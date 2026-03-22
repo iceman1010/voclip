@@ -60,10 +60,6 @@ pub struct Args {
     #[arg(long)]
     pub r#type: bool,
 
-    /// Set the default output mode and save to config (clipboard or type)
-    #[arg(long)]
-    pub set_default_output: Option<String>,
-
     /// Run in always-on listen mode with wake word detection (output is always typed)
     #[arg(long)]
     pub listen: bool,
@@ -84,7 +80,7 @@ pub struct Args {
     #[arg(long, default_value_t = 8)]
     pub wakeword_samples: u32,
 
-    /// Wake word detection sensitivity: low, medium, high (default: medium)
+    /// Wake word detection sensitivity: low, medium, high, or a number like 0.5 (default: medium)
     #[arg(long, default_value = "medium")]
     pub wakeword_sensitivity: String,
 }
@@ -144,20 +140,21 @@ pub struct Config {
     pub wakeword_name: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum WakewordSensitivity {
     Low,
     Medium,
     High,
+    Custom(f32),
 }
 
 impl WakewordSensitivity {
-    pub fn from_name(name: &str) -> Option<Self> {
-        match name {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
             "low" => Some(Self::Low),
             "medium" => Some(Self::Medium),
             "high" => Some(Self::High),
-            _ => None,
+            _ => value.parse::<f32>().ok().map(Self::Custom),
         }
     }
 }
@@ -207,13 +204,13 @@ impl Config {
             .unwrap_or_else(default_wakeword_path);
 
         let wakeword_sensitivity = if args.wakeword_sensitivity != "medium" {
-            WakewordSensitivity::from_name(&args.wakeword_sensitivity)
+            WakewordSensitivity::parse(&args.wakeword_sensitivity)
                 .unwrap_or(WakewordSensitivity::Medium)
         } else {
             file_config
                 .wakeword_sensitivity
                 .as_deref()
-                .and_then(WakewordSensitivity::from_name)
+                .and_then(WakewordSensitivity::parse)
                 .unwrap_or(WakewordSensitivity::Medium)
         };
 
@@ -251,22 +248,6 @@ pub fn save_default_timeout(secs: u32) -> Result<(), VoclipError> {
     let mut config = ConfigFile::load();
     config.default_timeout = Some(secs);
     config.save()
-}
-
-pub fn save_default_output(mode: &str) -> Result<OutputMode, VoclipError> {
-    let output_mode = match mode {
-        "clipboard" => OutputMode::Clipboard,
-        "type" => OutputMode::Type,
-        _ => {
-            return Err(VoclipError::Config(format!(
-                "Invalid output mode: {mode}. Use 'clipboard' or 'type'."
-            )));
-        }
-    };
-    let mut config = ConfigFile::load();
-    config.default_output = Some(mode.to_string());
-    config.save()?;
-    Ok(output_mode)
 }
 
 pub fn save_wakeword_name(name: &str) -> Result<(), VoclipError> {

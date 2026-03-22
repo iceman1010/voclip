@@ -96,19 +96,6 @@ async fn main() {
         }
     }
 
-    if let Some(ref mode) = args.set_default_output {
-        match config::save_default_output(mode) {
-            Ok(output_mode) => {
-                println!("Default output set to: {output_mode}");
-                return;
-            }
-            Err(e) => {
-                eprintln!("Error: {e}");
-                std::process::exit(1);
-            }
-        }
-    }
-
     // --wakeword-name alone: save to config
     if args.wakeword_name != "hey voclip"
         && !args.train_wakeword
@@ -157,9 +144,17 @@ async fn main() {
 
     if args.test_wakeword {
         let path = config::default_wakeword_path();
-        let sensitivity = config::WakewordSensitivity::from_name(&args.wakeword_sensitivity)
+        let sensitivity = config::WakewordSensitivity::parse(&args.wakeword_sensitivity)
             .unwrap_or(config::WakewordSensitivity::Medium);
-        if let Err(e) = wakeword::test(&path, sensitivity).await {
+        let file_config = config::ConfigFile::load();
+        let name = if args.wakeword_name != "hey voclip" {
+            args.wakeword_name.clone()
+        } else {
+            file_config
+                .wakeword_name
+                .unwrap_or_else(|| "hey voclip".to_string())
+        };
+        if let Err(e) = wakeword::test(&path, sensitivity, &name).await {
             let _ = beep::play_error_beep();
             eprintln!("Error: {e}");
             std::process::exit(1);
