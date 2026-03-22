@@ -269,7 +269,7 @@ async fn detect_wakeword(config: &Config) -> Result<bool, VoclipError> {
                             if let Some(detection) = detector.process_samples(frame) {
                                 eprintln!(
                                     "Wake word detected: \"{}\" (score: {:.3})",
-                                    detection.name, detection.score
+                                    config.wakeword_name, detection.score
                                 );
                                 drop(capture);
                                 return Ok(true);

@@ -109,6 +109,24 @@ async fn main() {
         }
     }
 
+    // --wakeword-name alone: save to config
+    if args.wakeword_name != "hey voclip"
+        && !args.train_wakeword
+        && !args.listen
+        && !args.test_wakeword
+    {
+        match config::save_wakeword_name(&args.wakeword_name) {
+            Ok(()) => {
+                println!("Wake word name set to: \"{}\"", args.wakeword_name);
+                return;
+            }
+            Err(e) => {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
     if args.train_wakeword {
         let path = config::default_wakeword_path();
         if let Err(e) =

@@ -77,11 +77,11 @@ pub struct Args {
     pub test_wakeword: bool,
 
     /// Label for the wake word — cosmetic only, shown in detection logs (used with --train-wakeword)
-    #[arg(long, default_value = "hey voclip", requires = "train_wakeword")]
+    #[arg(long, default_value = "hey voclip")]
     pub wakeword_name: String,
 
     /// Number of samples to record during training (used with --train-wakeword)
-    #[arg(long, default_value_t = 8, requires = "train_wakeword")]
+    #[arg(long, default_value_t = 8)]
     pub wakeword_samples: u32,
 
     /// Wake word detection sensitivity: low, medium, high (default: medium)
@@ -101,6 +101,8 @@ pub struct ConfigFile {
     pub wakeword_path: Option<String>,
     #[serde(default)]
     pub wakeword_sensitivity: Option<String>,
+    #[serde(default)]
+    pub wakeword_name: Option<String>,
 }
 
 impl ConfigFile {
@@ -139,6 +141,7 @@ pub struct Config {
     pub output_mode: OutputMode,
     pub wakeword_path: std::path::PathBuf,
     pub wakeword_sensitivity: WakewordSensitivity,
+    pub wakeword_name: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -214,6 +217,14 @@ impl Config {
                 .unwrap_or(WakewordSensitivity::Medium)
         };
 
+        let wakeword_name = if args.wakeword_name != "hey voclip" {
+            args.wakeword_name.clone()
+        } else {
+            file_config
+                .wakeword_name
+                .unwrap_or_else(|| "hey voclip".to_string())
+        };
+
         Ok(Config {
             api_key,
             timeout,
@@ -222,6 +233,7 @@ impl Config {
             output_mode,
             wakeword_path,
             wakeword_sensitivity,
+            wakeword_name,
         })
     }
 }
@@ -255,6 +267,13 @@ pub fn save_default_output(mode: &str) -> Result<OutputMode, VoclipError> {
     config.default_output = Some(mode.to_string());
     config.save()?;
     Ok(output_mode)
+}
+
+pub fn save_wakeword_name(name: &str) -> Result<(), VoclipError> {
+    let mut config = ConfigFile::load();
+    config.wakeword_name = Some(name.to_string());
+    config.save()?;
+    Ok(())
 }
 
 pub fn default_wakeword_path() -> std::path::PathBuf {
