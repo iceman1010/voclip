@@ -23,16 +23,10 @@ pub async fn run_session(
     token: &str,
     sample_rate: u32,
     timeout_secs: u32,
-    language: &str,
+    speech_model: &str,
     mut audio_rx: mpsc::Receiver<Vec<i16>>,
 ) -> Result<WsResult, VoclipError> {
     let timeout_ms = timeout_secs as u64 * 1000;
-
-    let speech_model = if language == "multi" {
-        "universal-streaming-multilingual"
-    } else {
-        "universal-streaming-english"
-    };
 
     let url = format!(
         "wss://streaming.assemblyai.com/v3/ws?token={token}\
@@ -41,8 +35,7 @@ pub async fn run_session(
          &encoding=pcm_s16le\
          &format_turns=true\
          &min_turn_silence={timeout_ms}\
-         &max_turn_silence={timeout_ms}\
-         &language={language}"
+         &max_turn_silence={timeout_ms}"
     );
 
     let (ws_stream, _) = tokio_tungstenite::connect_async(&url).await?;

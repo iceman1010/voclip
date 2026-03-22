@@ -4,6 +4,7 @@ mod clipboard;
 mod config;
 mod error;
 mod resample;
+mod speech_model;
 mod token;
 mod update;
 mod websocket;
@@ -11,16 +12,45 @@ mod websocket;
 use clap::Parser;
 use config::Config;
 use error::VoclipError;
-use single_instance::SingleInstance;
 
-fn acquire_lock() -> Result<SingleInstance, String> {
-    let instance = SingleInstance::new("voclip").map_err(|e| {
-        format!("Failed to create lock: {e}")
-    })?;
-    if instance.is_single() {
-        Ok(instance)
-    } else {
-        Err("Another instance of voclip is already running".to_string())
+use std::fs;
+use std::path::PathBuf;
+
+struct PidLock {
+    path: PathBuf,
+}
+
+impl PidLock {
+    fn acquire() -> Result<Self, String> {
+        let run_dir = dirs_next::runtime_dir()
+            .or_else(dirs_next::cache_dir)
+            .unwrap_or_else(std::env::temp_dir);
+        let path = run_dir.join("voclip.pid");
+
+        // Check for stale lock
+        if path.exists() {
+            if let Ok(content) = fs::read_to_string(&path) {
+                if let Ok(pid) = content.trim().parse::<u32>() {
+                    // Check if process is still alive
+                    if std::path::Path::new(&format!("/proc/{pid}")).exists() {
+                        return Err("Another instance of voclip is already running".to_string());
+                    }
+                }
+                // Stale lock — process is dead, remove it
+                let _ = fs::remove_file(&path);
+            }
+        }
+
+        fs::write(&path, std::process::id().to_string())
+            .map_err(|e| format!("Failed to create lock: {e}"))?;
+
+        Ok(PidLock { path })
+    }
+}
+
+impl Drop for PidLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
     }
 }
 
@@ -28,7 +58,25 @@ fn acquire_lock() -> Result<SingleInstance, String> {
 async fn main() {
     let args = config::Args::parse();
 
-    let _lock = match acquire_lock() {
+    if args.list_models {
+        config::print_models();
+        return;
+    }
+
+    if let Some(ref name) = args.set_default_model {
+        match config::save_default_model(name) {
+            Ok(model) => {
+                println!("Default model set to: {} ({})", model, model.description());
+                return;
+            }
+            Err(e) => {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    let _lock = match PidLock::acquire() {
         Ok(lock) => lock,
         Err(e) => {
             eprintln!("Error: {e}");
@@ -53,6 +101,8 @@ async fn main() {
 async fn run(args: &config::Args) -> Result<(), VoclipError> {
     let config = Config::load(args)?;
 
+    eprintln!("Using model: {} ({})", config.model, config.model.description());
+
     clipboard::check_clipboard_deps();
 
     eprintln!("Authenticating...");
@@ -75,7 +125,7 @@ async fn run(args: &config::Args) -> Result<(), VoclipError> {
         &token,
         device_rate,
         config.timeout,
-        &config.language,
+        config.model.api_name(),
         audio_rx,
     )
     .await?;

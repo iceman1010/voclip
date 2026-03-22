@@ -1,6 +1,6 @@
 [package]
 name = "voclip"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Voice to clipboard CLI tool"
 
@@ -19,4 +19,5 @@ thiserror = "2"
 url = "2"
 futures-util = "0.3"
 self_update = "0.11"
-single-instance = "0.3"
+dirs-next = "2"
+toml = "0.8"

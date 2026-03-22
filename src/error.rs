@@ -20,6 +20,12 @@ pub enum VoclipError {
     #[error("Audio playback error: {0}")]
     Playback(String),
 
+    #[error("Config error: {0}")]
+    Config(String),
+
+    #[error("Invalid speech model: {0}. Use --list-models to see available models.")]
+    InvalidModel(String),
+
     #[allow(dead_code)]
     #[error("API error: {0}")]
     Api(String),
