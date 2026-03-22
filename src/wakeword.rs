@@ -6,20 +6,20 @@ use tokio::sync::mpsc;
 
 use crate::audio_capture;
 use crate::beep;
-use crate::config::{Config, WakewordSensitivity};
+use crate::config::{Config, VoiceAction, VoicePattern, WakewordSensitivity};
 use crate::error::VoclipError;
 use crate::keyboard;
 use crate::resample::Resampler;
 use crate::token;
 use crate::websocket;
 
-/// Record voice samples and build a .rpw wakeword reference file.
+/// Record voice samples and build a .rpw reference file.
 pub async fn train(
     name: &str,
     num_samples: u32,
     wakeword_path: &Path,
 ) -> Result<(), VoclipError> {
-    eprintln!("Wake word training: recording {num_samples} samples of \"{name}\"");
+    eprintln!("Training: recording {num_samples} samples of \"{name}\"");
     eprintln!("Speak clearly, about 1-2 seconds per sample.\n");
 
     let mut wav_samples: HashMap<String, Vec<u8>> = HashMap::new();
@@ -76,7 +76,7 @@ pub async fn train(
         eprintln!("  Sample {i} recorded ({} samples at 16kHz)\n", resampled.len());
     }
 
-    eprintln!("Building wakeword model...");
+    eprintln!("Building model...");
     let wakeword = rustpotter::WakewordRef::new_from_sample_buffers(
         name.to_string(),
         None,
@@ -92,21 +92,20 @@ pub async fn train(
     }
 
     let path_str = wakeword_path.to_str().ok_or_else(|| {
-        VoclipError::WakeWord("Invalid wakeword path".to_string())
+        VoclipError::WakeWord("Invalid path".to_string())
     })?;
     rustpotter::WakewordSave::save_to_file(&wakeword, path_str)
         .map_err(VoclipError::WakeWord)?;
 
-    eprintln!("Wake word saved to: {}", wakeword_path.display());
-    eprintln!("Use --test-wakeword to verify, then --listen to use it.");
+    eprintln!("Saved to: {}", wakeword_path.display());
 
     Ok(())
 }
 
-/// Create a configured rustpotter detector with sensitivity settings.
+/// Create a configured rustpotter detector with all voice patterns loaded.
 fn create_detector(
     device_rate: u32,
-    wakeword_path: &Path,
+    patterns: &[VoicePattern],
     sensitivity: WakewordSensitivity,
 ) -> Result<Rustpotter, VoclipError> {
     let mut config = RustpotterConfig::default();
@@ -144,39 +143,58 @@ fn create_detector(
 
     let mut detector = Rustpotter::new(&config)
         .map_err(|e| VoclipError::WakeWord(format!("Failed to create detector: {e}")))?;
-    detector
-        .add_wakeword_from_file(
-            "wakeword",
-            wakeword_path.to_str().unwrap_or_default(),
-        )
-        .map_err(|e| VoclipError::WakeWord(format!("Failed to load wakeword: {e}")))?;
+
+    for pattern in patterns {
+        if !pattern.path.exists() {
+            eprintln!(
+                "Warning: voice pattern file not found: {} (skipping \"{}\")",
+                pattern.path.display(),
+                pattern.name
+            );
+            continue;
+        }
+        detector
+            .add_wakeword_from_file(
+                &pattern.name,
+                pattern.path.to_str().unwrap_or_default(),
+            )
+            .map_err(|e| {
+                VoclipError::WakeWord(format!(
+                    "Failed to load voice pattern \"{}\": {e}",
+                    pattern.name
+                ))
+            })?;
+    }
 
     Ok(detector)
 }
 
-/// Test wake word detection — listen and print scores for debugging.
+/// Test detection of all trained voice patterns.
 pub async fn test(
-    wakeword_path: &Path,
+    patterns: &[VoicePattern],
     sensitivity: WakewordSensitivity,
-    name: &str,
 ) -> Result<(), VoclipError> {
-    if !wakeword_path.exists() {
-        return Err(VoclipError::WakeWord(format!(
-            "Wakeword file not found: {}. Run --train-wakeword first.",
-            wakeword_path.display()
-        )));
+    let trained: Vec<_> = patterns.iter().filter(|p| p.path.exists()).collect();
+    if trained.is_empty() {
+        return Err(VoclipError::WakeWord(
+            "No trained voice patterns found. Run --train-wakeword or --train-command first."
+                .to_string(),
+        ));
     }
 
     let (tx, mut rx) = mpsc::channel::<Vec<i16>>(50);
     let capture = audio_capture::start_capture(tx)?;
     let device_rate = capture.device_sample_rate;
 
-    let mut detector = create_detector(device_rate, wakeword_path, sensitivity)?;
+    let mut detector = create_detector(device_rate, patterns, sensitivity)?;
     let samples_per_frame = detector.get_samples_per_frame();
     let mut buffer: Vec<i16> = Vec::new();
 
-    eprintln!("Testing wake word detection (sensitivity: {sensitivity:?}, Ctrl+C to stop)...");
-    eprintln!("Say your wake word. Detections will be printed.\n");
+    eprintln!("Testing detection (sensitivity: {sensitivity:?}, Ctrl+C to stop)...");
+    eprintln!(
+        "Loaded {} pattern(s). Say any trained phrase.\n",
+        trained.len()
+    );
 
     loop {
         tokio::select! {
@@ -188,9 +206,17 @@ pub async fn test(
                             let frame: Vec<i16> =
                                 buffer.drain(..samples_per_frame).collect();
                             if let Some(detection) = detector.process_samples(frame) {
+                                let label = if let Some(p) = patterns.iter().find(|p| p.name == detection.name) {
+                                    match &p.action {
+                                        VoiceAction::Transcribe => "wake word",
+                                        VoiceAction::Key(_) => "command word",
+                                    }
+                                } else {
+                                    "unknown"
+                                };
                                 eprintln!(
-                                    "  DETECTED: \"{}\" (score: {:.3})",
-                                    name, detection.score
+                                    "  DETECTED [{label}]: \"{}\" (score: {:.3})",
+                                    detection.name, detection.score
                                 );
                                 if let Err(e) = beep::play_start_beep() {
                                     eprintln!("Beep failed: {e}");
@@ -212,49 +238,85 @@ pub async fn test(
     Ok(())
 }
 
-/// Always-on listen mode: detect wake word → transcribe → type output → repeat.
+/// Always-on listen mode: detect voice patterns → dispatch action → repeat.
 pub async fn listen(config: &Config) -> Result<(), VoclipError> {
-    if !config.wakeword_path.exists() {
-        return Err(VoclipError::WakeWord(format!(
-            "Wakeword file not found: {}. Run --train-wakeword first.",
-            config.wakeword_path.display()
-        )));
+    let trained: Vec<_> = config
+        .voice_patterns
+        .iter()
+        .filter(|p| p.path.exists())
+        .collect();
+
+    if trained.is_empty() {
+        return Err(VoclipError::WakeWord(
+            "No trained voice patterns found. Run --train-wakeword or --train-command first."
+                .to_string(),
+        ));
     }
 
     eprintln!("Using model: {} ({})", config.model, config.model.description());
     keyboard::check_keyboard_deps();
-    eprintln!("Listening for wake word... (Ctrl+C to stop)\n");
+
+    let wake_count = trained
+        .iter()
+        .filter(|p| p.action == VoiceAction::Transcribe)
+        .count();
+    let cmd_count = trained.len() - wake_count;
+
+    eprintln!(
+        "Loaded {} wake word(s) and {} command word(s):",
+        wake_count, cmd_count
+    );
+    for p in &trained {
+        let label = match &p.action {
+            VoiceAction::Transcribe => "Wake word:   ",
+            VoiceAction::Key(_) => "Command word:",
+        };
+        eprintln!("  {label} \"{}\" → {}", p.name, p.action);
+    }
+    eprintln!("Listening... (Ctrl+C to stop)\n");
 
     loop {
         // --- Detection phase ---
-        let detected = detect_wakeword(config).await?;
-        if !detected {
-            // Ctrl+C during detection
+        let detected = detect(config).await?;
+        let Some(pattern) = detected else {
+            // Ctrl+C
             break;
+        };
+
+        // --- Action dispatch ---
+        match &pattern.action {
+            VoiceAction::Transcribe => {
+                if let Err(e) = run_transcription(config).await {
+                    let _ = beep::play_error_beep();
+                    eprintln!("Transcription error: {e}");
+                }
+            }
+            VoiceAction::Key(key_name) => {
+                if let Err(e) = beep::play_start_beep() {
+                    eprintln!("Beep failed: {e}");
+                }
+                match keyboard::press_key(key_name) {
+                    Ok(()) => eprintln!("Pressed: {key_name}"),
+                    Err(e) => eprintln!("Key press error: {e}"),
+                }
+            }
         }
 
-        // --- Transcription phase ---
-        if let Err(e) = run_transcription(config).await {
-            let _ = beep::play_error_beep();
-            eprintln!("Transcription error: {e}");
-            // Continue listening despite error
-        }
-
-        eprintln!("\nListening for wake word...\n");
+        eprintln!("\nListening...\n");
     }
 
     Ok(())
 }
 
-/// Listen for the wake word. Returns true on detection, false on Ctrl+C.
-async fn detect_wakeword(config: &Config) -> Result<bool, VoclipError> {
+/// Listen for any voice pattern. Returns the matched pattern on detection, None on Ctrl+C.
+async fn detect(config: &Config) -> Result<Option<VoicePattern>, VoclipError> {
     let (tx, mut rx) = mpsc::channel::<Vec<i16>>(50);
     let capture = audio_capture::start_capture(tx)?;
     let device_rate = capture.device_sample_rate;
 
     let mut detector = create_detector(
         device_rate,
-        &config.wakeword_path,
+        &config.voice_patterns,
         config.wakeword_sensitivity,
     )?;
     let samples_per_frame = detector.get_samples_per_frame();
@@ -269,19 +331,25 @@ async fn detect_wakeword(config: &Config) -> Result<bool, VoclipError> {
                         while buffer.len() >= samples_per_frame {
                             let frame: Vec<i16> =
                                 buffer.drain(..samples_per_frame).collect();
-                            if let Some(detection) = detector.process_samples(frame) {
+                            if let Some(detection) = detector.process_samples(frame)
+                                && let Some(pattern) = config.voice_patterns.iter().find(|p| p.name == detection.name)
+                            {
+                                let label = match &pattern.action {
+                                    VoiceAction::Transcribe => "Wake word",
+                                    VoiceAction::Key(_) => "Command word",
+                                };
                                 eprintln!(
-                                    "Wake word detected: \"{}\" (score: {:.3})",
-                                    config.wakeword_name, detection.score
+                                    "{label} detected: \"{}\" (score: {:.3})",
+                                    pattern.name, detection.score
                                 );
                                 drop(capture);
-                                return Ok(true);
+                                return Ok(Some(pattern.clone()));
                             }
                         }
                     }
                     None => {
                         drop(capture);
-                        return Ok(false);
+                        return Ok(None);
                     }
                 }
             }
@@ -289,7 +357,7 @@ async fn detect_wakeword(config: &Config) -> Result<bool, VoclipError> {
                 eprint!("\r\x1b[2K");
                 eprintln!("Interrupted.");
                 drop(capture);
-                return Ok(false);
+                return Ok(None);
             }
         }
     }

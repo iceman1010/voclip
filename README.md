@@ -2,7 +2,7 @@
 
 Voice to clipboard — speak and paste. A CLI tool that listens to your microphone, streams audio to AssemblyAI for real-time transcription, and copies the final transcript to your clipboard or types it directly via keyboard simulation.
 
-Includes local wake word detection — say a custom phrase (e.g., "hey voclip") and it starts transcribing hands-free. No UI, no browser — just run `voclip`, speak, and paste.
+Includes local wake word detection — say a custom phrase (e.g., "hey voclip") and it starts transcribing hands-free. You can also train **command words** that trigger keyboard actions like pressing Enter or Backspace. No UI, no browser — just run `voclip`, speak, and paste.
 
 ## Demo
 
@@ -124,16 +124,20 @@ Options:
   --model <MODEL>                 Speech model (u3-rt-pro, english, multilingual, whisper-rt)
   --delay <SECONDS>               Delay before recording starts (default: 1)
   --type                          Type text via keyboard instead of copying to clipboard
-  --listen                        Always-on wake word mode (output is always typed)
-  --train-wakeword                Record voice samples and build a wake word file
-  --test-wakeword                 Test/debug wake word detection
-  --wakeword-name <PHRASE>        Label for the wake word (cosmetic only, default: "hey voclip")
+  --listen                        Always-on mode with wake word and command word detection
+  --train-wakeword                Train the wake word (triggers transcription)
+  --train-command                  Train a command word (triggers a key press action)
+  --test-wakeword                 Test/debug detection of all trained voice patterns
+  --wakeword-name <NAME>          Name for the wake word (used with --train-wakeword)
+  --command-name <NAME>           Name for the command word (used with --train-command)
+  --command-action <ACTION>       Action for the command word: "key:<keyname>" (used with --train-command)
   --wakeword-samples <N>          Number of training samples (default: 8)
-  --wakeword-sensitivity <LEVEL>  Detection sensitivity: low, medium, high (default: medium)
+  --wakeword-sensitivity <LEVEL>  Detection sensitivity: low, medium, high, or a number (default: medium)
+  --list-wakewords                List all configured wake word and command words
+  --remove-wakeword <NAME>        Remove a trained voice pattern by name
   --list-models                   List available speech models
   --set-default-model <MODEL>     Save default speech model to config
   --set-default-timeout <SECS>    Save default timeout to config
-  --set-default-output <MODE>     Save default output mode (clipboard or type)
   --update                        Check for updates and self-update
   --version                       Print version
   -h, --help                      Print help
@@ -155,19 +159,26 @@ voclip --timeout 2
 voclip --model english
 ```
 
-### Wake Word Mode
+### Wake Word & Command Words
 
-Train a custom wake word, then run in always-on hands-free mode:
+Train a **wake word** for hands-free transcription, and **command words** for keyboard actions:
 
 ```bash
-# Step 1: Record 8 voice samples of your wake word
-voclip --train-wakeword
+# Train the wake word (triggers transcription)
+voclip --train-wakeword --wakeword-name "Computer"
 
-# Step 2: Test detection quality
+# Train command words (trigger key presses)
+voclip --train-command --command-name "press enter" --command-action "key:Return"
+voclip --train-command --command-name "go back" --command-action "key:BackSpace"
+
+# Test all trained patterns
 voclip --test-wakeword
 
-# Step 3: Run in always-on mode (types output at cursor)
+# Run in always-on mode
 voclip --listen
+
+# List all configured patterns
+voclip --list-wakewords
 ```
 
 Wake word detection runs entirely locally using [rustpotter](https://github.com/GiviMAD/rustpotter) — no cloud API needed for detection. Only the transcription phase uses AssemblyAI.
@@ -176,6 +187,7 @@ You can tune detection with `--wakeword-sensitivity`:
 - `low` — fewer false positives, may miss some utterances
 - `medium` (default) — balanced
 - `high` — catches more, may occasionally false-trigger
+- A number like `0.5` for fine-grained control
 
 ### How it works
 
@@ -188,10 +200,10 @@ You can tune detection with `--wakeword-sensitivity`:
 6. Plays a falling beep to confirm, then exits
 
 **Listen mode** (`--listen`):
-1. Continuously listens for the trained wake word (local, ~2% CPU)
-2. On detection, plays a beep and starts transcription via AssemblyAI
-3. Types the transcript at the cursor position
-4. Returns to listening for the next wake word
+1. Continuously listens for all trained voice patterns (local, ~2% CPU)
+2. Wake word detected → plays a beep, transcribes via AssemblyAI, types the text
+3. Command word detected → plays a beep and presses the configured key
+4. Returns to listening
 
 Press `Ctrl+C` at any time to stop.
 

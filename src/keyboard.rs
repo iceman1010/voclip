@@ -86,6 +86,70 @@ fn try_command(cmd: &str, args: &[&str]) -> bool {
         .unwrap_or(false)
 }
 
+/// Simulate a single key press (e.g., "Return", "BackSpace", "Tab").
+/// Tries platform CLI tools first, falls back to enigo.
+pub fn press_key(key_name: &str) -> Result<(), VoclipError> {
+    thread::sleep(Duration::from_millis(50));
+
+    if try_cli_key_press(key_name) {
+        return Ok(());
+    }
+
+    press_key_with_enigo(key_name)
+}
+
+fn try_cli_key_press(key_name: &str) -> bool {
+    // Wayland: wtype -k <key>
+    if std::env::var("WAYLAND_DISPLAY").is_ok()
+        && try_command("wtype", &["-k", key_name])
+    {
+        return true;
+    }
+
+    // X11: xdotool key <key>
+    if std::env::var("DISPLAY").is_ok() && try_command("xdotool", &["key", key_name]) {
+        return true;
+    }
+
+    false
+}
+
+fn press_key_with_enigo(key_name: &str) -> Result<(), VoclipError> {
+    use enigo::{Enigo, Key, Keyboard, Settings};
+
+    let key = match key_name.to_lowercase().as_str() {
+        "return" | "enter" => Key::Return,
+        "backspace" => Key::Backspace,
+        "tab" => Key::Tab,
+        "escape" => Key::Escape,
+        "space" => Key::Space,
+        "delete" => Key::Delete,
+        "up" | "uparrow" => Key::UpArrow,
+        "down" | "downarrow" => Key::DownArrow,
+        "left" | "leftarrow" => Key::LeftArrow,
+        "right" | "rightarrow" => Key::RightArrow,
+        "home" => Key::Home,
+        "end" => Key::End,
+        "pageup" | "page_up" => Key::PageUp,
+        "pagedown" | "page_down" => Key::PageDown,
+        _ => {
+            return Err(VoclipError::Keyboard(format!(
+                "Unknown key: {key_name}. Supported: Return, BackSpace, Tab, Escape, Space, \
+                 Delete, Up, Down, Left, Right, Home, End, PageUp, PageDown"
+            )));
+        }
+    };
+
+    let mut enigo = Enigo::new(&Settings::default())
+        .map_err(|e| VoclipError::Keyboard(format!("Failed to initialize enigo: {e}")))?;
+
+    enigo
+        .key(key, enigo::Direction::Click)
+        .map_err(|e| VoclipError::Keyboard(format!("Failed to press key: {e}")))?;
+
+    Ok(())
+}
+
 fn type_with_enigo(text: &str) -> Result<(), VoclipError> {
     use enigo::{Enigo, Keyboard, Settings};
 

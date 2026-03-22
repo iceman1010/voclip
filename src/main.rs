@@ -70,6 +70,11 @@ async fn main() {
         return;
     }
 
+    if args.list_wakewords {
+        config::list_voice_patterns();
+        return;
+    }
+
     if let Some(ref name) = args.set_default_model {
         match config::save_default_model(name) {
             Ok(model) => {
@@ -96,13 +101,32 @@ async fn main() {
         }
     }
 
-    // --wakeword-name alone: save to config
+    if let Some(ref name) = args.remove_wakeword {
+        match config::remove_voice_pattern(name) {
+            Ok(true) => {
+                println!("Removed: \"{name}\"");
+                return;
+            }
+            Ok(false) => {
+                eprintln!("Not found: \"{name}\"");
+                std::process::exit(1);
+            }
+            Err(e) => {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    // --wakeword-name alone: save to config as wake word
     if args.wakeword_name != "hey voclip"
         && !args.train_wakeword
+        && !args.train_command
         && !args.listen
         && !args.test_wakeword
     {
-        match config::save_wakeword_name(&args.wakeword_name) {
+        let action = config::VoiceAction::Transcribe;
+        match config::save_voice_pattern(&args.wakeword_name, &action) {
             Ok(()) => {
                 println!("Wake word name set to: \"{}\"", args.wakeword_name);
                 return;
@@ -114,14 +138,50 @@ async fn main() {
         }
     }
 
+    // Train wake word
     if args.train_wakeword {
-        let path = config::default_wakeword_path();
+        let path = config::voice_pattern_path_for_name(&args.wakeword_name);
         if let Err(e) =
             wakeword::train(&args.wakeword_name, args.wakeword_samples, &path).await
         {
             let _ = beep::play_error_beep();
             eprintln!("Training failed: {e}");
             std::process::exit(1);
+        }
+        // Register in config
+        let action = config::VoiceAction::Transcribe;
+        if let Err(e) = config::save_voice_pattern(&args.wakeword_name, &action) {
+            eprintln!("Warning: trained but failed to save config: {e}");
+        }
+        return;
+    }
+
+    // Train command word
+    if args.train_command {
+        let Some(ref name) = args.command_name else {
+            eprintln!("Error: --train-command requires --command-name");
+            std::process::exit(1);
+        };
+        let Some(ref action_str) = args.command_action else {
+            eprintln!("Error: --train-command requires --command-action (e.g. \"key:Return\")");
+            std::process::exit(1);
+        };
+        let Some(action) = config::VoiceAction::parse(action_str) else {
+            eprintln!(
+                "Error: invalid action \"{action_str}\". Use \"key:<keyname>\" (e.g. \"key:Return\")"
+            );
+            std::process::exit(1);
+        };
+
+        let path = config::voice_pattern_path_for_name(name);
+        if let Err(e) = wakeword::train(name, args.wakeword_samples, &path).await {
+            let _ = beep::play_error_beep();
+            eprintln!("Training failed: {e}");
+            std::process::exit(1);
+        }
+        // Register in config
+        if let Err(e) = config::save_voice_pattern(name, &action) {
+            eprintln!("Warning: trained but failed to save config: {e}");
         }
         return;
     }
@@ -143,18 +203,15 @@ async fn main() {
     }
 
     if args.test_wakeword {
-        let path = config::default_wakeword_path();
+        let file_config = config::ConfigFile::load();
+        let patterns = config::load_voice_patterns_from(&file_config);
+        if patterns.is_empty() {
+            eprintln!("No voice patterns configured. Train one first.");
+            std::process::exit(1);
+        }
         let sensitivity = config::WakewordSensitivity::parse(&args.wakeword_sensitivity)
             .unwrap_or(config::WakewordSensitivity::Medium);
-        let file_config = config::ConfigFile::load();
-        let name = if args.wakeword_name != "hey voclip" {
-            args.wakeword_name.clone()
-        } else {
-            file_config
-                .wakeword_name
-                .unwrap_or_else(|| "hey voclip".to_string())
-        };
-        if let Err(e) = wakeword::test(&path, sensitivity, &name).await {
+        if let Err(e) = wakeword::test(&patterns, sensitivity).await {
             let _ = beep::play_error_beep();
             eprintln!("Error: {e}");
             std::process::exit(1);
