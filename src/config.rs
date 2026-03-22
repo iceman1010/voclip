@@ -77,11 +77,11 @@ pub struct Args {
     pub test_wakeword: bool,
 
     /// Label for the wake word — cosmetic only, shown in detection logs (used with --train-wakeword)
-    #[arg(long, default_value = "hey voclip")]
+    #[arg(long, default_value = "hey voclip", requires = "train_wakeword")]
     pub wakeword_name: String,
 
     /// Number of samples to record during training (used with --train-wakeword)
-    #[arg(long, default_value_t = 8)]
+    #[arg(long, default_value_t = 8, requires = "train_wakeword")]
     pub wakeword_samples: u32,
 
     /// Wake word detection sensitivity: low, medium, high (default: medium)
