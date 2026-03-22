@@ -55,18 +55,17 @@ pub fn copy_and_verify(text: &str) -> Result<bool, VoclipError> {
 
 fn try_cli_copy(text: &str) -> bool {
     // Wayland
-    if std::env::var("WAYLAND_DISPLAY").is_ok() {
-        if let Ok(mut child) = Command::new("wl-copy")
+    if std::env::var("WAYLAND_DISPLAY").is_ok()
+        && let Ok(mut child) = Command::new("wl-copy")
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
-        {
-            if let Some(mut stdin) = child.stdin.take() {
-                let _ = stdin.write_all(text.as_bytes());
-            }
-            return child.wait().map(|s| s.success()).unwrap_or(false);
+    {
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(text.as_bytes());
         }
+        return child.wait().map(|s| s.success()).unwrap_or(false);
     }
 
     // X11: try xclip, then xsel
@@ -113,36 +112,33 @@ fn try_cli_copy(text: &str) -> bool {
 }
 
 fn cli_read() -> Option<String> {
-    if std::env::var("WAYLAND_DISPLAY").is_ok() {
-        if let Ok(out) = Command::new("wl-paste").output() {
-            if out.status.success() {
-                return Some(String::from_utf8_lossy(&out.stdout).to_string());
-            }
-        }
+    if std::env::var("WAYLAND_DISPLAY").is_ok()
+        && let Ok(out) = Command::new("wl-paste").output()
+        && out.status.success()
+    {
+        return Some(String::from_utf8_lossy(&out.stdout).to_string());
     }
 
     if let Ok(out) = Command::new("xclip")
         .args(["-selection", "clipboard", "-o"])
         .output()
+        && out.status.success()
     {
-        if out.status.success() {
-            return Some(String::from_utf8_lossy(&out.stdout).to_string());
-        }
+        return Some(String::from_utf8_lossy(&out.stdout).to_string());
     }
 
     if let Ok(out) = Command::new("xsel")
         .args(["--clipboard", "--output"])
         .output()
+        && out.status.success()
     {
-        if out.status.success() {
-            return Some(String::from_utf8_lossy(&out.stdout).to_string());
-        }
+        return Some(String::from_utf8_lossy(&out.stdout).to_string());
     }
 
-    if let Ok(out) = Command::new("pbpaste").output() {
-        if out.status.success() {
-            return Some(String::from_utf8_lossy(&out.stdout).to_string());
-        }
+    if let Ok(out) = Command::new("pbpaste").output()
+        && out.status.success()
+    {
+        return Some(String::from_utf8_lossy(&out.stdout).to_string());
     }
 
     None

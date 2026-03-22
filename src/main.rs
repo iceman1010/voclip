@@ -3,6 +3,7 @@ mod beep;
 mod clipboard;
 mod config;
 mod error;
+mod keyboard;
 mod resample;
 mod speech_model;
 mod token;
@@ -28,17 +29,17 @@ impl PidLock {
         let path = run_dir.join("voclip.pid");
 
         // Check for stale lock
-        if path.exists() {
-            if let Ok(content) = fs::read_to_string(&path) {
-                if let Ok(pid) = content.trim().parse::<u32>() {
-                    // Check if process is still alive
-                    if std::path::Path::new(&format!("/proc/{pid}")).exists() {
-                        return Err("Another instance of voclip is already running".to_string());
-                    }
+        if path.exists()
+            && let Ok(content) = fs::read_to_string(&path)
+        {
+            if let Ok(pid) = content.trim().parse::<u32>() {
+                // Check if process is still alive
+                if std::path::Path::new(&format!("/proc/{pid}")).exists() {
+                    return Err("Another instance of voclip is already running".to_string());
                 }
-                // Stale lock — process is dead, remove it
-                let _ = fs::remove_file(&path);
             }
+            // Stale lock — process is dead, remove it
+            let _ = fs::remove_file(&path);
         }
 
         fs::write(&path, std::process::id().to_string())
@@ -94,6 +95,19 @@ async fn main() {
         }
     }
 
+    if let Some(ref mode) = args.set_default_output {
+        match config::save_default_output(mode) {
+            Ok(output_mode) => {
+                println!("Default output set to: {output_mode}");
+                return;
+            }
+            Err(e) => {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
     let _lock = match PidLock::acquire() {
         Ok(lock) => lock,
         Err(e) => {
@@ -122,7 +136,10 @@ async fn run(args: &config::Args) -> Result<(), VoclipError> {
 
     eprintln!("Using model: {} ({})", config.model, config.model.description());
 
-    clipboard::check_clipboard_deps();
+    match config.output_mode {
+        config::OutputMode::Clipboard => clipboard::check_clipboard_deps(),
+        config::OutputMode::Type => keyboard::check_keyboard_deps(),
+    }
 
     eprintln!("Authenticating...");
     let token = token::fetch_token(&config.api_key).await?;
@@ -159,11 +176,19 @@ async fn run(args: &config::Args) -> Result<(), VoclipError> {
         return Ok(());
     }
 
-    let verified = clipboard::copy_and_verify(&transcript)?;
-    if verified {
-        eprintln!("Copied to clipboard: {transcript}");
-    } else {
-        eprintln!("Clipboard write may have failed. Transcript: {transcript}");
+    match config.output_mode {
+        config::OutputMode::Clipboard => {
+            let verified = clipboard::copy_and_verify(&transcript)?;
+            if verified {
+                eprintln!("Copied to clipboard: {transcript}");
+            } else {
+                eprintln!("Clipboard write may have failed. Transcript: {transcript}");
+            }
+        }
+        config::OutputMode::Type => {
+            keyboard::type_text(&transcript)?;
+            eprintln!("Typed: {transcript}");
+        }
     }
 
     if let Err(e) = beep::play_stop_beep() {

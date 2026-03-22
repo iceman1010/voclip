@@ -1,8 +1,25 @@
+use std::fmt;
+
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 
 use crate::error::VoclipError;
 use crate::speech_model::SpeechModel;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputMode {
+    Clipboard,
+    Type,
+}
+
+impl fmt::Display for OutputMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            OutputMode::Clipboard => write!(f, "clipboard"),
+            OutputMode::Type => write!(f, "type"),
+        }
+    }
+}
 
 #[derive(Parser, Debug)]
 #[command(name = "voclip", about = "Voice to clipboard — speak and paste")]
@@ -38,6 +55,14 @@ pub struct Args {
     /// Set the default silence timeout (seconds) and save to config
     #[arg(long)]
     pub set_default_timeout: Option<u32>,
+
+    /// Type text via keyboard instead of copying to clipboard
+    #[arg(long)]
+    pub r#type: bool,
+
+    /// Set the default output mode and save to config (clipboard or type)
+    #[arg(long)]
+    pub set_default_output: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -46,6 +71,8 @@ pub struct ConfigFile {
     pub default_model: Option<String>,
     #[serde(default)]
     pub default_timeout: Option<u32>,
+    #[serde(default)]
+    pub default_output: Option<String>,
 }
 
 impl ConfigFile {
@@ -81,6 +108,7 @@ pub struct Config {
     pub timeout: u32,
     pub model: SpeechModel,
     pub delay: u32,
+    pub output_mode: OutputMode,
 }
 
 impl Config {
@@ -113,11 +141,21 @@ impl Config {
             file_config.default_timeout.unwrap_or(3)
         };
 
+        let output_mode = if args.r#type {
+            OutputMode::Type
+        } else {
+            match file_config.default_output.as_deref() {
+                Some("type") => OutputMode::Type,
+                _ => OutputMode::Clipboard,
+            }
+        };
+
         Ok(Config {
             api_key,
             timeout,
             model,
             delay: args.delay,
+            output_mode,
         })
     }
 }
@@ -135,6 +173,22 @@ pub fn save_default_timeout(secs: u32) -> Result<(), VoclipError> {
     let mut config = ConfigFile::load();
     config.default_timeout = Some(secs);
     config.save()
+}
+
+pub fn save_default_output(mode: &str) -> Result<OutputMode, VoclipError> {
+    let output_mode = match mode {
+        "clipboard" => OutputMode::Clipboard,
+        "type" => OutputMode::Type,
+        _ => {
+            return Err(VoclipError::Config(format!(
+                "Invalid output mode: {mode}. Use 'clipboard' or 'type'."
+            )));
+        }
+    };
+    let mut config = ConfigFile::load();
+    config.default_output = Some(mode.to_string());
+    config.save()?;
+    Ok(output_mode)
 }
 
 pub fn print_models() {
