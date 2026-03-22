@@ -8,6 +8,7 @@ mod resample;
 mod speech_model;
 mod token;
 mod update;
+mod wakeword;
 mod websocket;
 
 use clap::Parser;
@@ -108,6 +109,18 @@ async fn main() {
         }
     }
 
+    if args.train_wakeword {
+        let path = config::default_wakeword_path();
+        if let Err(e) =
+            wakeword::train(&args.wakeword_name, args.wakeword_samples, &path).await
+        {
+            let _ = beep::play_error_beep();
+            eprintln!("Training failed: {e}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     let _lock = match PidLock::acquire() {
         Ok(lock) => lock,
         Err(e) => {
@@ -120,6 +133,35 @@ async fn main() {
         if let Err(e) = update::update() {
             eprintln!("Update failed: {e}");
             std::process::exit(1);
+        }
+        return;
+    }
+
+    if args.test_wakeword {
+        let path = config::default_wakeword_path();
+        let sensitivity = config::WakewordSensitivity::from_name(&args.wakeword_sensitivity)
+            .unwrap_or(config::WakewordSensitivity::Medium);
+        if let Err(e) = wakeword::test(&path, sensitivity).await {
+            let _ = beep::play_error_beep();
+            eprintln!("Error: {e}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
+    if args.listen {
+        match Config::load(&args) {
+            Ok(config) => {
+                if let Err(e) = wakeword::listen(&config).await {
+                    let _ = beep::play_error_beep();
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            }
+            Err(e) => {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
         }
         return;
     }

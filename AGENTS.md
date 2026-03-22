@@ -145,7 +145,8 @@ src/
 ├── beep.rs           # Audio feedback tones
 ├── resample.rs       # Audio resampling
 ├── speech_model.rs   # Speech model enum
-└── update.rs         # Self-update functionality
+├── update.rs         # Self-update functionality
+└── wakeword.rs       # Wake word detection and training (rustpotter)
 ```
 
 ## Key Dependencies
@@ -159,6 +160,7 @@ src/
 - `rodio` - Audio playback
 - `tokio-tungstenite` - WebSocket client
 - `reqwest` - HTTP client
+- `rustpotter` - Wake word detection and training
 
 ## Notes
 

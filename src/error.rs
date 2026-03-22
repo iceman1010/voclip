@@ -26,6 +26,9 @@ pub enum VoclipError {
     #[error("Keyboard input error: {0}")]
     Keyboard(String),
 
+    #[error("Wake word error: {0}")]
+    WakeWord(String),
+
     #[error("Invalid speech model: {0}. Use --list-models to see available models.")]
     InvalidModel(String),
 

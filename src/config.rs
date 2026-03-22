@@ -63,6 +63,30 @@ pub struct Args {
     /// Set the default output mode and save to config (clipboard or type)
     #[arg(long)]
     pub set_default_output: Option<String>,
+
+    /// Run in always-on listen mode with wake word detection (output is always typed)
+    #[arg(long)]
+    pub listen: bool,
+
+    /// Record wake word samples and build a .rpw reference file
+    #[arg(long)]
+    pub train_wakeword: bool,
+
+    /// Test/debug wake word detection — listen and print detection scores
+    #[arg(long)]
+    pub test_wakeword: bool,
+
+    /// Name/phrase for the wake word (used with --train-wakeword)
+    #[arg(long, default_value = "hey voclip")]
+    pub wakeword_name: String,
+
+    /// Number of samples to record during training (used with --train-wakeword)
+    #[arg(long, default_value_t = 8)]
+    pub wakeword_samples: u32,
+
+    /// Wake word detection sensitivity: low, medium, high (default: medium)
+    #[arg(long, default_value = "medium")]
+    pub wakeword_sensitivity: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -73,6 +97,10 @@ pub struct ConfigFile {
     pub default_timeout: Option<u32>,
     #[serde(default)]
     pub default_output: Option<String>,
+    #[serde(default)]
+    pub wakeword_path: Option<String>,
+    #[serde(default)]
+    pub wakeword_sensitivity: Option<String>,
 }
 
 impl ConfigFile {
@@ -109,6 +137,26 @@ pub struct Config {
     pub model: SpeechModel,
     pub delay: u32,
     pub output_mode: OutputMode,
+    pub wakeword_path: std::path::PathBuf,
+    pub wakeword_sensitivity: WakewordSensitivity,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WakewordSensitivity {
+    Low,
+    Medium,
+    High,
+}
+
+impl WakewordSensitivity {
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "low" => Some(Self::Low),
+            "medium" => Some(Self::Medium),
+            "high" => Some(Self::High),
+            _ => None,
+        }
+    }
 }
 
 impl Config {
@@ -150,12 +198,30 @@ impl Config {
             }
         };
 
+        let wakeword_path = file_config
+            .wakeword_path
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(default_wakeword_path);
+
+        let wakeword_sensitivity = if args.wakeword_sensitivity != "medium" {
+            WakewordSensitivity::from_name(&args.wakeword_sensitivity)
+                .unwrap_or(WakewordSensitivity::Medium)
+        } else {
+            file_config
+                .wakeword_sensitivity
+                .as_deref()
+                .and_then(WakewordSensitivity::from_name)
+                .unwrap_or(WakewordSensitivity::Medium)
+        };
+
         Ok(Config {
             api_key,
             timeout,
             model,
             delay: args.delay,
             output_mode,
+            wakeword_path,
+            wakeword_sensitivity,
         })
     }
 }
@@ -189,6 +255,11 @@ pub fn save_default_output(mode: &str) -> Result<OutputMode, VoclipError> {
     config.default_output = Some(mode.to_string());
     config.save()?;
     Ok(output_mode)
+}
+
+pub fn default_wakeword_path() -> std::path::PathBuf {
+    let config_dir = dirs_next::config_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+    config_dir.join("voclip").join("wakeword.rpw")
 }
 
 pub fn print_models() {
