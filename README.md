@@ -1,8 +1,8 @@
 # voclip
 
-Voice to clipboard — speak and paste. A CLI tool that listens to your microphone, streams audio to AssemblyAI for real-time transcription, and copies the final transcript to your clipboard with an audible beep.
+Voice to clipboard — speak and paste. A CLI tool that listens to your microphone, streams audio to AssemblyAI for real-time transcription, and copies the final transcript to your clipboard or types it directly via keyboard simulation.
 
-No UI, no browser — just run `voclip`, speak, and paste.
+Includes local wake word detection — say a custom phrase (e.g., "hey voclip") and it starts transcribing hands-free. No UI, no browser — just run `voclip`, speak, and paste.
 
 ## Demo
 
@@ -28,6 +28,8 @@ Copied to clipboard: Hello, this is a test of voice to clipboard.
 sudo apt install libasound2-dev pkg-config libssl-dev  # build deps
 sudo apt install xclip                                  # clipboard (X11)
 # or: sudo apt install wl-clipboard                     # clipboard (Wayland)
+sudo apt install xdotool                                # keyboard typing (X11, for --type/--listen)
+# or: sudo apt install wtype                             # keyboard typing (Wayland)
 ```
 
 #### macOS
@@ -118,36 +120,80 @@ ASSEMBLYAI_API_KEY=your_key_here
 voclip [OPTIONS]
 
 Options:
-  --update               Check for updates and self-update if a newer version is available
-  --timeout <SECONDS>    Silence timeout in seconds (default: 3)
-  --language <CODE>      Language code or "multi" for auto-detect (default: "multi")
-  --delay <SECONDS>      Delay before recording starts (default: 1)
-  -h, --help             Print help
+  --timeout <SECONDS>             Silence timeout in seconds (default: 3)
+  --model <MODEL>                 Speech model (u3-rt-pro, english, multilingual, whisper-rt)
+  --delay <SECONDS>               Delay before recording starts (default: 1)
+  --type                          Type text via keyboard instead of copying to clipboard
+  --listen                        Always-on wake word mode (output is always typed)
+  --train-wakeword                Record voice samples and build a wake word file
+  --test-wakeword                 Test/debug wake word detection
+  --wakeword-name <PHRASE>        Wake word phrase (default: "hey voclip")
+  --wakeword-samples <N>          Number of training samples (default: 8)
+  --wakeword-sensitivity <LEVEL>  Detection sensitivity: low, medium, high (default: medium)
+  --list-models                   List available speech models
+  --set-default-model <MODEL>     Save default speech model to config
+  --set-default-timeout <SECS>    Save default timeout to config
+  --set-default-output <MODE>     Save default output mode (clipboard or type)
+  --update                        Check for updates and self-update
+  --version                       Print version
+  -h, --help                      Print help
 ```
 
 ### Examples
 
 ```bash
-# Default: auto-detect language, 3s silence timeout
+# Default: one-shot transcription to clipboard
 voclip
 
-# English only, 5 second silence timeout
-voclip --language en --timeout 5
+# Type directly instead of clipboard
+voclip --type
 
 # Quick dictation with short silence timeout
 voclip --timeout 2
+
+# Use a specific speech model
+voclip --model english
 ```
+
+### Wake Word Mode
+
+Train a custom wake word, then run in always-on hands-free mode:
+
+```bash
+# Step 1: Record 8 voice samples of your wake word
+voclip --train-wakeword
+
+# Step 2: Test detection quality
+voclip --test-wakeword
+
+# Step 3: Run in always-on mode (types output at cursor)
+voclip --listen
+```
+
+Wake word detection runs entirely locally using [rustpotter](https://github.com/GiviMAD/rustpotter) — no cloud API needed for detection. Only the transcription phase uses AssemblyAI.
+
+You can tune detection with `--wakeword-sensitivity`:
+- `low` — fewer false positives, may miss some utterances
+- `medium` (default) — balanced
+- `high` — catches more, may occasionally false-trigger
 
 ### How it works
 
+**One-shot mode** (default):
 1. Authenticates with AssemblyAI and gets a temporary streaming token
 2. Opens your default microphone (rising beep confirms recording started)
 3. Streams audio to AssemblyAI via WebSocket for real-time transcription
 4. Shows partial transcripts on stderr as you speak
-5. After the silence timeout, copies the final transcript to your clipboard
+5. After the silence timeout, copies the transcript to clipboard (or types it with `--type`)
 6. Plays a falling beep to confirm, then exits
 
-Press `Ctrl+C` at any time to stop early.
+**Listen mode** (`--listen`):
+1. Continuously listens for the trained wake word (local, ~2% CPU)
+2. On detection, plays a beep and starts transcription via AssemblyAI
+3. Types the transcript at the cursor position
+4. Returns to listening for the next wake word
+
+Press `Ctrl+C` at any time to stop.
 
 ### Auto-Update
 
@@ -163,12 +209,12 @@ See the [installer documentation](install/README.md) for setting up a global hot
 
 ## Supported Platforms
 
-| Platform | Audio | Clipboard | Notes |
-|----------|-------|-----------|-------|
-| Linux (X11) | ALSA | xclip / xsel | Needs `libasound2-dev` to build |
-| Linux (Wayland) | ALSA | wl-clipboard | Needs `libasound2-dev` to build |
-| macOS | CoreAudio | pbcopy | Grant mic permission on first run |
-| Windows | WASAPI | Native | Works out of the box |
+| Platform | Audio | Clipboard | Keyboard Typing | Notes |
+|----------|-------|-----------|-----------------|-------|
+| Linux (X11) | ALSA | xclip / xsel | xdotool / enigo | Needs `libasound2-dev` to build |
+| Linux (Wayland) | ALSA | wl-clipboard | wtype / ydotool / enigo | Needs `libasound2-dev` to build |
+| macOS | CoreAudio | pbcopy | enigo | Grant mic permission on first run |
+| Windows | WASAPI | Native | enigo | Works out of the box |
 
 ## License
 
