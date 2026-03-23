@@ -70,6 +70,27 @@ async fn main() {
         return;
     }
 
+    if args.list_devices {
+        match audio_capture::list_input_devices() {
+            Ok(devices) => {
+                if devices.is_empty() {
+                    println!("No audio input devices found.");
+                } else {
+                    println!("Audio input devices:\n");
+                    for (i, name) in devices.iter().enumerate() {
+                        println!("  {}: {name}", i + 1);
+                    }
+                    println!("\nUse --audio-device <name> to select one.");
+                }
+            }
+            Err(e) => {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
     if args.list_wakewords {
         config::list_voice_patterns();
         return;
@@ -118,6 +139,25 @@ async fn main() {
         }
     }
 
+    // --audio-device alone: save to config
+    if let Some(ref name) = args.audio_device
+        && !args.train_wakeword
+        && !args.train_command
+        && !args.listen
+        && !args.test_wakeword
+    {
+        match config::save_audio_device(name) {
+            Ok(()) => {
+                println!("Audio device set to: \"{name}\"");
+                return;
+            }
+            Err(e) => {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
     // --wakeword-name alone: save to config as wake word
     if args.wakeword_name != "hey voclip"
         && !args.train_wakeword
@@ -138,11 +178,17 @@ async fn main() {
         }
     }
 
+    // Resolve audio device for training/testing (doesn't need full Config)
+    let audio_device = args
+        .audio_device
+        .clone()
+        .or_else(|| config::ConfigFile::load().audio_device);
+
     // Train wake word
     if args.train_wakeword {
         let path = config::voice_pattern_path_for_name(&args.wakeword_name);
         if let Err(e) =
-            wakeword::train(&args.wakeword_name, args.wakeword_samples, &path).await
+            wakeword::train(&args.wakeword_name, args.wakeword_samples, &path, audio_device.as_deref()).await
         {
             let _ = beep::play_error_beep();
             eprintln!("Training failed: {e}");
@@ -174,7 +220,7 @@ async fn main() {
         };
 
         let path = config::voice_pattern_path_for_name(name);
-        if let Err(e) = wakeword::train(name, args.wakeword_samples, &path).await {
+        if let Err(e) = wakeword::train(name, args.wakeword_samples, &path, audio_device.as_deref()).await {
             let _ = beep::play_error_beep();
             eprintln!("Training failed: {e}");
             std::process::exit(1);
@@ -211,7 +257,7 @@ async fn main() {
         }
         let sensitivity = config::WakewordSensitivity::parse(&args.wakeword_sensitivity)
             .unwrap_or(config::WakewordSensitivity::Medium);
-        if let Err(e) = wakeword::test(&patterns, sensitivity).await {
+        if let Err(e) = wakeword::test(&patterns, sensitivity, audio_device.as_deref()).await {
             let _ = beep::play_error_beep();
             eprintln!("Error: {e}");
             std::process::exit(1);
@@ -257,7 +303,7 @@ async fn run(args: &config::Args) -> Result<(), VoclipError> {
     let token = token::fetch_token(&config.api_key).await?;
 
     let (audio_tx, audio_rx) = tokio::sync::mpsc::channel::<Vec<i16>>(50);
-    let capture = audio_capture::start_capture(audio_tx)?;
+    let capture = audio_capture::start_capture_with_device(audio_tx, config.audio_device.as_deref())?;
     let device_rate = capture.device_sample_rate;
 
     eprintln!("Recording starts in {}s...", config.delay);

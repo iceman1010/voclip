@@ -4,6 +4,43 @@ use tokio::sync::mpsc;
 
 use crate::error::VoclipError;
 
+/// Temporarily suppress stderr (ALSA/Jack spam) during a closure.
+#[cfg(unix)]
+fn with_stderr_suppressed<F, R>(f: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    use std::fs::File;
+    use std::os::fd::AsRawFd;
+
+    // Open /dev/null and save the current stderr fd
+    let Ok(devnull) = File::open("/dev/null") else {
+        return f();
+    };
+    let stderr_fd = 2;
+    let saved = unsafe { libc::dup(stderr_fd) };
+    if saved < 0 {
+        return f();
+    }
+
+    // Redirect stderr to /dev/null
+    unsafe { libc::dup2(devnull.as_raw_fd(), stderr_fd) };
+    let result = f();
+
+    // Restore stderr
+    unsafe { libc::dup2(saved, stderr_fd) };
+    unsafe { libc::close(saved) };
+    result
+}
+
+#[cfg(not(unix))]
+fn with_stderr_suppressed<F, R>(f: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    f()
+}
+
 pub struct AudioCapture {
     #[allow(dead_code)]
     stream: Stream,
@@ -12,11 +49,55 @@ pub struct AudioCapture {
     channels: u16,
 }
 
-pub fn start_capture(tx: mpsc::Sender<Vec<i16>>) -> Result<AudioCapture, VoclipError> {
+/// List all available input devices (suppresses ALSA/Jack noise).
+pub fn list_input_devices() -> Result<Vec<String>, VoclipError> {
+    with_stderr_suppressed(|| {
+        let host = cpal::default_host();
+        let devices = host
+            .input_devices()
+            .map_err(|e| VoclipError::AudioDevice(e.to_string()))?;
+        let mut names = Vec::new();
+        for device in devices {
+            if let Ok(name) = device.name() {
+                names.push(name);
+            }
+        }
+        Ok(names)
+    })
+}
+
+/// Find an input device by name (case-insensitive substring match).
+fn find_device_by_name(name: &str) -> Result<cpal::Device, VoclipError> {
+    with_stderr_suppressed(|| {
+        let host = cpal::default_host();
+        let devices = host
+            .input_devices()
+            .map_err(|e| VoclipError::AudioDevice(e.to_string()))?;
+        let lower = name.to_lowercase();
+        for device in devices {
+            if let Ok(dev_name) = device.name()
+                && dev_name.to_lowercase().contains(&lower)
+            {
+                return Ok(device);
+            }
+        }
+        Err(VoclipError::AudioDevice(format!(
+            "No input device matching \"{name}\". Use --list-devices to see available devices."
+        )))
+    })
+}
+
+pub fn start_capture_with_device(
+    tx: mpsc::Sender<Vec<i16>>,
+    device_name: Option<&str>,
+) -> Result<AudioCapture, VoclipError> {
     let host = cpal::default_host();
-    let device = host
-        .default_input_device()
-        .ok_or_else(|| VoclipError::AudioDevice("No input device found".into()))?;
+    let device = if let Some(name) = device_name {
+        find_device_by_name(name)?
+    } else {
+        host.default_input_device()
+            .ok_or_else(|| VoclipError::AudioDevice("No input device found".into()))?
+    };
 
     let config = device
         .default_input_config()

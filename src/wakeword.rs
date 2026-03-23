@@ -18,62 +18,31 @@ pub async fn train(
     name: &str,
     num_samples: u32,
     wakeword_path: &Path,
+    audio_device: Option<&str>,
 ) -> Result<(), VoclipError> {
     eprintln!("Training: recording {num_samples} samples of \"{name}\"");
     eprintln!("Speak clearly, about 1-2 seconds per sample.\n");
 
     let mut wav_samples: HashMap<String, Vec<u8>> = HashMap::new();
+    let mut i = 1u32;
 
-    for i in 1..=num_samples {
+    while i <= num_samples {
         eprintln!("Press Enter to start recording sample {i}/{num_samples}...");
-        tokio::task::spawn_blocking(|| {
-            let mut buf = String::new();
-            std::io::stdin().read_line(&mut buf)
-        })
-        .await
-        .map_err(|e| VoclipError::WakeWord(format!("Failed to read stdin: {e}")))?
-        .map_err(|e| VoclipError::WakeWord(format!("Failed to read stdin: {e}")))?;
+        read_stdin_line().await?;
 
-        let (tx, mut rx) = mpsc::channel::<Vec<i16>>(50);
-        let capture = audio_capture::start_capture(tx)?;
-        let device_rate = capture.device_sample_rate;
+        let wav_bytes = record_one_sample(audio_device).await?;
 
-        if let Err(e) = beep::play_start_beep() {
-            eprintln!("Beep failed: {e}");
+        eprintln!("  Sample {i} recorded. Press Enter to keep, or 'r' + Enter to redo:");
+        let input = read_stdin_line().await?;
+
+        if input.trim().eq_ignore_ascii_case("r") {
+            eprintln!("  Redoing sample {i}...\n");
+            continue;
         }
 
-        eprintln!("  Recording...");
-
-        // Collect audio for 3 seconds
-        let mut all_samples: Vec<i16> = Vec::new();
-        let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(3);
-        loop {
-            tokio::select! {
-                chunk = rx.recv() => {
-                    match chunk {
-                        Some(samples) => all_samples.extend_from_slice(&samples),
-                        None => break,
-                    }
-                }
-                _ = tokio::time::sleep_until(deadline) => break,
-            }
-        }
-
-        drop(capture);
-
-        if let Err(e) = beep::play_stop_beep() {
-            eprintln!("Beep failed: {e}");
-        }
-
-        // Resample to 16kHz
-        let mut resampler = Resampler::new(device_rate, 16000);
-        let resampled = resampler.process(&all_samples);
-
-        // Encode as WAV
-        let wav_bytes = encode_wav(&resampled, 16000);
         wav_samples.insert(format!("sample_{i}.wav"), wav_bytes);
-
-        eprintln!("  Sample {i} recorded ({} samples at 16kHz)\n", resampled.len());
+        eprintln!();
+        i += 1;
     }
 
     eprintln!("Building model...");
@@ -102,14 +71,67 @@ pub async fn train(
     Ok(())
 }
 
+async fn read_stdin_line() -> Result<String, VoclipError> {
+    tokio::task::spawn_blocking(|| {
+        let mut buf = String::new();
+        std::io::stdin()
+            .read_line(&mut buf)
+            .map(|_| buf)
+    })
+    .await
+    .map_err(|e| VoclipError::WakeWord(format!("Failed to read stdin: {e}")))?
+    .map_err(|e| VoclipError::WakeWord(format!("Failed to read stdin: {e}")))
+}
+
+async fn record_one_sample(audio_device: Option<&str>) -> Result<Vec<u8>, VoclipError> {
+    let (tx, mut rx) = mpsc::channel::<Vec<i16>>(50);
+    let capture = audio_capture::start_capture_with_device(tx, audio_device)?;
+    let device_rate = capture.device_sample_rate;
+
+    if let Err(e) = beep::play_start_beep() {
+        eprintln!("Beep failed: {e}");
+    }
+
+    eprintln!("  Recording...");
+
+    let mut all_samples: Vec<i16> = Vec::new();
+    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(3);
+    loop {
+        tokio::select! {
+            chunk = rx.recv() => {
+                match chunk {
+                    Some(samples) => all_samples.extend_from_slice(&samples),
+                    None => break,
+                }
+            }
+            _ = tokio::time::sleep_until(deadline) => break,
+        }
+    }
+
+    drop(capture);
+
+    if let Err(e) = beep::play_stop_beep() {
+        eprintln!("Beep failed: {e}");
+    }
+
+    let mut resampler = Resampler::new(device_rate, 16000);
+    let resampled = resampler.process(&all_samples);
+
+    Ok(encode_wav(&resampled, 16000))
+}
+
+/// The sample rate used for wake word detection.
+/// Models are trained at 16kHz, so we resample to this rate before detection.
+/// This reduces CPU usage ~3x compared to processing at typical 48kHz device rates.
+const DETECT_SAMPLE_RATE: u32 = 16000;
+
 /// Create a configured rustpotter detector with all voice patterns loaded.
 fn create_detector(
-    device_rate: u32,
     patterns: &[VoicePattern],
     sensitivity: WakewordSensitivity,
 ) -> Result<Rustpotter, VoclipError> {
     let mut config = RustpotterConfig::default();
-    config.fmt.sample_rate = device_rate as usize;
+    config.fmt.sample_rate = DETECT_SAMPLE_RATE as usize;
     config.fmt.sample_format = SampleFormat::I16;
     config.fmt.channels = 1;
 
@@ -169,10 +191,22 @@ fn create_detector(
     Ok(detector)
 }
 
+/// Find the voice pattern that matches a detection result.
+/// Rustpotter's detection.name is the internal .rpw training name, which may differ
+/// from the configured pattern name (e.g., legacy files trained as "hey voclip" but
+/// renamed to "Computer" in config). Falls back to first loaded pattern if no exact match.
+fn find_pattern<'a>(patterns: &'a [VoicePattern], detection_name: &str) -> Option<&'a VoicePattern> {
+    patterns
+        .iter()
+        .find(|p| p.name == detection_name)
+        .or_else(|| patterns.iter().find(|p| p.path.exists()))
+}
+
 /// Test detection of all trained voice patterns.
 pub async fn test(
     patterns: &[VoicePattern],
     sensitivity: WakewordSensitivity,
+    audio_device: Option<&str>,
 ) -> Result<(), VoclipError> {
     let trained: Vec<_> = patterns.iter().filter(|p| p.path.exists()).collect();
     if trained.is_empty() {
@@ -183,12 +217,13 @@ pub async fn test(
     }
 
     let (tx, mut rx) = mpsc::channel::<Vec<i16>>(50);
-    let capture = audio_capture::start_capture(tx)?;
+    let capture = audio_capture::start_capture_with_device(tx, audio_device)?;
     let device_rate = capture.device_sample_rate;
 
-    let mut detector = create_detector(device_rate, patterns, sensitivity)?;
+    let mut detector = create_detector(patterns, sensitivity)?;
     let samples_per_frame = detector.get_samples_per_frame();
     let mut buffer: Vec<i16> = Vec::new();
+    let mut resampler = Resampler::new(device_rate, DETECT_SAMPLE_RATE);
 
     eprintln!("Testing detection (sensitivity: {sensitivity:?}, Ctrl+C to stop)...");
     eprintln!(
@@ -196,27 +231,32 @@ pub async fn test(
         trained.len()
     );
 
+    let ctrl_c = tokio::signal::ctrl_c();
+    tokio::pin!(ctrl_c);
+
     loop {
         tokio::select! {
             chunk = rx.recv() => {
                 match chunk {
                     Some(samples) => {
-                        buffer.extend_from_slice(&samples);
+                        let resampled = resampler.process(&samples);
+                        buffer.extend_from_slice(&resampled);
                         while buffer.len() >= samples_per_frame {
                             let frame: Vec<i16> =
                                 buffer.drain(..samples_per_frame).collect();
                             if let Some(detection) = detector.process_samples(frame) {
-                                let label = if let Some(p) = patterns.iter().find(|p| p.name == detection.name) {
-                                    match &p.action {
+                                let (label, display_name) = if let Some(p) = find_pattern(patterns, &detection.name) {
+                                    let l = match &p.action {
                                         VoiceAction::Transcribe => "wake word",
                                         VoiceAction::Key(_) => "command word",
-                                    }
+                                    };
+                                    (l, p.name.as_str())
                                 } else {
-                                    "unknown"
+                                    ("unknown", detection.name.as_str())
                                 };
                                 eprintln!(
                                     "  DETECTED [{label}]: \"{}\" (score: {:.3})",
-                                    detection.name, detection.score
+                                    display_name, detection.score
                                 );
                                 if let Err(e) = beep::play_start_beep() {
                                     eprintln!("Beep failed: {e}");
@@ -227,7 +267,7 @@ pub async fn test(
                     None => break,
                 }
             }
-            _ = tokio::signal::ctrl_c() => {
+            _ = &mut ctrl_c => {
                 eprintln!("\nDone testing.");
                 break;
             }
@@ -239,6 +279,7 @@ pub async fn test(
 }
 
 /// Always-on listen mode: detect voice patterns → dispatch action → repeat.
+/// Keeps a single audio capture stream and detector alive across cycles.
 pub async fn listen(config: &Config) -> Result<(), VoclipError> {
     let trained: Vec<_> = config
         .voice_patterns
@@ -275,13 +316,76 @@ pub async fn listen(config: &Config) -> Result<(), VoclipError> {
     }
     eprintln!("Listening... (Ctrl+C to stop)\n");
 
+    let (tx, mut rx) = mpsc::channel::<Vec<i16>>(50);
+    let capture = audio_capture::start_capture_with_device(tx, config.audio_device.as_deref())?;
+    let device_rate = capture.device_sample_rate;
+
+    let mut detector = create_detector(
+        &config.voice_patterns,
+        config.wakeword_sensitivity,
+    )?;
+    let samples_per_frame = detector.get_samples_per_frame();
+    let mut buffer: Vec<i16> = Vec::new();
+    let mut resampler = Resampler::new(device_rate, DETECT_SAMPLE_RATE);
+
+    let ctrl_c = tokio::signal::ctrl_c();
+    tokio::pin!(ctrl_c);
+
     loop {
-        // --- Detection phase ---
-        let detected = detect(config).await?;
-        let Some(pattern) = detected else {
-            // Ctrl+C
+        // --- Detection phase: wait for a voice pattern ---
+        let pattern = loop {
+            tokio::select! {
+                chunk = rx.recv() => {
+                    match chunk {
+                        Some(samples) => {
+                            let resampled = resampler.process(&samples);
+                            buffer.extend_from_slice(&resampled);
+                            let mut detected = None;
+                            while buffer.len() >= samples_per_frame {
+                                let frame: Vec<i16> =
+                                    buffer.drain(..samples_per_frame).collect();
+                                if let Some(detection) = detector.process_samples(frame)
+                                    && let Some(p) = find_pattern(
+                                        &config.voice_patterns,
+                                        &detection.name,
+                                    )
+                                {
+                                    let label = match &p.action {
+                                        VoiceAction::Transcribe => "Wake word",
+                                        VoiceAction::Key(_) => "Command word",
+                                    };
+                                    eprintln!(
+                                        "{label} detected: \"{}\" (score: {:.3})",
+                                        p.name, detection.score
+                                    );
+                                    detected = Some(p.clone());
+                                    break;
+                                }
+                            }
+                            if detected.is_some() {
+                                break detected;
+                            }
+                            continue;
+                        }
+                        None => break None,
+                    }
+                }
+                _ = &mut ctrl_c => {
+                    eprint!("\r\x1b[2K");
+                    eprintln!("Interrupted.");
+                    break None;
+                }
+            }
+        };
+
+        let Some(pattern) = pattern else {
             break;
         };
+
+        // Drain the audio channel while we handle the action so the buffer
+        // doesn't build up and cause a stale detection on resume.
+        drain_channel(&mut rx);
+        buffer.clear();
 
         // --- Action dispatch ---
         match &pattern.action {
@@ -302,65 +406,20 @@ pub async fn listen(config: &Config) -> Result<(), VoclipError> {
             }
         }
 
+        // Drain again after action completes to discard audio captured during it.
+        drain_channel(&mut rx);
+        buffer.clear();
+
         eprintln!("\nListening...\n");
     }
 
+    drop(capture);
     Ok(())
 }
 
-/// Listen for any voice pattern. Returns the matched pattern on detection, None on Ctrl+C.
-async fn detect(config: &Config) -> Result<Option<VoicePattern>, VoclipError> {
-    let (tx, mut rx) = mpsc::channel::<Vec<i16>>(50);
-    let capture = audio_capture::start_capture(tx)?;
-    let device_rate = capture.device_sample_rate;
-
-    let mut detector = create_detector(
-        device_rate,
-        &config.voice_patterns,
-        config.wakeword_sensitivity,
-    )?;
-    let samples_per_frame = detector.get_samples_per_frame();
-    let mut buffer: Vec<i16> = Vec::new();
-
-    loop {
-        tokio::select! {
-            chunk = rx.recv() => {
-                match chunk {
-                    Some(samples) => {
-                        buffer.extend_from_slice(&samples);
-                        while buffer.len() >= samples_per_frame {
-                            let frame: Vec<i16> =
-                                buffer.drain(..samples_per_frame).collect();
-                            if let Some(detection) = detector.process_samples(frame)
-                                && let Some(pattern) = config.voice_patterns.iter().find(|p| p.name == detection.name)
-                            {
-                                let label = match &pattern.action {
-                                    VoiceAction::Transcribe => "Wake word",
-                                    VoiceAction::Key(_) => "Command word",
-                                };
-                                eprintln!(
-                                    "{label} detected: \"{}\" (score: {:.3})",
-                                    pattern.name, detection.score
-                                );
-                                drop(capture);
-                                return Ok(Some(pattern.clone()));
-                            }
-                        }
-                    }
-                    None => {
-                        drop(capture);
-                        return Ok(None);
-                    }
-                }
-            }
-            _ = tokio::signal::ctrl_c() => {
-                eprint!("\r\x1b[2K");
-                eprintln!("Interrupted.");
-                drop(capture);
-                return Ok(None);
-            }
-        }
-    }
+/// Drain all pending messages from an audio channel.
+fn drain_channel(rx: &mut mpsc::Receiver<Vec<i16>>) {
+    while rx.try_recv().is_ok() {}
 }
 
 /// Run a single transcription cycle: authenticate → capture → transcribe → type output.
@@ -373,7 +432,7 @@ async fn run_transcription(config: &Config) -> Result<(), VoclipError> {
     let token = token::fetch_token(&config.api_key).await?;
 
     let (audio_tx, audio_rx) = mpsc::channel::<Vec<i16>>(50);
-    let capture = audio_capture::start_capture(audio_tx)?;
+    let capture = audio_capture::start_capture_with_device(audio_tx, config.audio_device.as_deref())?;
     let device_rate = capture.device_sample_rate;
 
     eprintln!("Connecting...");

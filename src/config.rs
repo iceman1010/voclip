@@ -104,6 +104,14 @@ pub struct Args {
     /// Remove a trained voice pattern by name
     #[arg(long)]
     pub remove_wakeword: Option<String>,
+
+    /// List available audio input devices
+    #[arg(long)]
+    pub list_devices: bool,
+
+    /// Audio input device name (substring match, saved to config if used alone)
+    #[arg(long)]
+    pub audio_device: Option<String>,
 }
 
 // --- Voice pattern types ---
@@ -173,6 +181,9 @@ pub struct ConfigFile {
     pub default_output: Option<String>,
     #[serde(default)]
     pub wakeword_sensitivity: Option<String>,
+
+    #[serde(default)]
+    pub audio_device: Option<String>,
 
     // Legacy single-wakeword fields (for backward compatibility)
     #[serde(default)]
@@ -244,6 +255,7 @@ pub struct Config {
     pub output_mode: OutputMode,
     pub wakeword_sensitivity: WakewordSensitivity,
     pub voice_patterns: Vec<VoicePattern>,
+    pub audio_device: Option<String>,
 }
 
 impl Config {
@@ -298,6 +310,11 @@ impl Config {
 
         let voice_patterns = load_voice_patterns_from(&file_config);
 
+        let audio_device = args
+            .audio_device
+            .clone()
+            .or(file_config.audio_device.clone());
+
         Ok(Config {
             api_key,
             timeout,
@@ -306,6 +323,7 @@ impl Config {
             output_mode,
             wakeword_sensitivity,
             voice_patterns,
+            audio_device,
         })
     }
 }
@@ -465,6 +483,12 @@ pub fn save_default_model(name: &str) -> Result<SpeechModel, VoclipError> {
 pub fn save_default_timeout(secs: u32) -> Result<(), VoclipError> {
     let mut config = ConfigFile::load();
     config.default_timeout = Some(secs);
+    config.save()
+}
+
+pub fn save_audio_device(name: &str) -> Result<(), VoclipError> {
+    let mut config = ConfigFile::load();
+    config.audio_device = Some(name.to_string());
     config.save()
 }
 
