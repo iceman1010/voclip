@@ -3,6 +3,8 @@ use serde::Deserialize;
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 
+use crossterm::style::Stylize;
+
 use crate::error::VoclipError;
 use crate::resample::Resampler;
 
@@ -92,7 +94,7 @@ pub async fn stream(
             let msg = match msg {
                 Ok(m) => m,
                 Err(e) => {
-                    eprintln!("\rWebSocket error: {e}");
+                    eprintln!("\r\x1b[2K{} WebSocket error: {e}", "✗".red());
                     break;
                 }
             };
@@ -114,7 +116,7 @@ pub async fn stream(
             };
 
             if let Some(ref error) = parsed.error {
-                eprintln!("\rAPI error: {error}");
+                eprintln!("\r\x1b[2K{} API error: {error}", "✗".red());
                 break;
             }
 
@@ -134,12 +136,12 @@ pub async fn stream(
                         // Clear partial line, print final
                         eprint!("\r\x1b[2K");
                         if !transcript.is_empty() {
-                            eprintln!("{transcript}");
+                            eprintln!("{}", transcript.bold());
                         }
                         let _ = done_tx.send(full_transcript).await;
                         return;
                     } else if !transcript.is_empty() {
-                        eprint!("\r\x1b[2K{transcript}");
+                        eprint!("\r\x1b[2K{}", transcript.dim());
                     }
                 }
                 "Termination" => {

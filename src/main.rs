@@ -7,6 +7,7 @@ mod keyboard;
 mod resample;
 mod speech_model;
 mod token;
+mod ui;
 mod update;
 mod wakeword;
 mod websocket;
@@ -84,7 +85,7 @@ async fn main() {
                 }
             }
             Err(e) => {
-                eprintln!("Error: {e}");
+                ui::error(&format!("{e}"));
                 std::process::exit(1);
             }
         }
@@ -103,7 +104,7 @@ async fn main() {
                 return;
             }
             Err(e) => {
-                eprintln!("Error: {e}");
+                ui::error(&format!("{e}"));
                 std::process::exit(1);
             }
         }
@@ -116,7 +117,7 @@ async fn main() {
                 return;
             }
             Err(e) => {
-                eprintln!("Error: {e}");
+                ui::error(&format!("{e}"));
                 std::process::exit(1);
             }
         }
@@ -129,11 +130,11 @@ async fn main() {
                 return;
             }
             Ok(false) => {
-                eprintln!("Not found: \"{name}\"");
+                ui::error(&format!("Not found: \"{name}\""));
                 std::process::exit(1);
             }
             Err(e) => {
-                eprintln!("Error: {e}");
+                ui::error(&format!("{e}"));
                 std::process::exit(1);
             }
         }
@@ -152,7 +153,7 @@ async fn main() {
                 return;
             }
             Err(e) => {
-                eprintln!("Error: {e}");
+                ui::error(&format!("{e}"));
                 std::process::exit(1);
             }
         }
@@ -172,7 +173,7 @@ async fn main() {
                 return;
             }
             Err(e) => {
-                eprintln!("Error: {e}");
+                ui::error(&format!("{e}"));
                 std::process::exit(1);
             }
         }
@@ -191,13 +192,13 @@ async fn main() {
             wakeword::train(&args.wakeword_name, args.wakeword_samples, &path, audio_device.as_deref()).await
         {
             let _ = beep::play_error_beep();
-            eprintln!("Training failed: {e}");
+            ui::error(&format!("Training failed: {e}"));
             std::process::exit(1);
         }
         // Register in config
         let action = config::VoiceAction::Transcribe;
         if let Err(e) = config::save_voice_pattern(&args.wakeword_name, &action) {
-            eprintln!("Warning: trained but failed to save config: {e}");
+            ui::warn(&format!("Trained but failed to save config: {e}"));
         }
         return;
     }
@@ -205,29 +206,29 @@ async fn main() {
     // Train command word
     if args.train_command {
         let Some(ref name) = args.command_name else {
-            eprintln!("Error: --train-command requires --command-name");
+            ui::error("--train-command requires --command-name");
             std::process::exit(1);
         };
         let Some(ref action_str) = args.command_action else {
-            eprintln!("Error: --train-command requires --command-action (e.g. \"key:Return\")");
+            ui::error("--train-command requires --command-action (e.g. \"key:Return\")");
             std::process::exit(1);
         };
         let Some(action) = config::VoiceAction::parse(action_str) else {
-            eprintln!(
-                "Error: invalid action \"{action_str}\". Use \"key:<keyname>\" (e.g. \"key:Return\")"
-            );
+            ui::error(&format!(
+                "Invalid action \"{action_str}\". Use \"key:<keyname>\" (e.g. \"key:Return\")"
+            ));
             std::process::exit(1);
         };
 
         let path = config::voice_pattern_path_for_name(name);
         if let Err(e) = wakeword::train(name, args.wakeword_samples, &path, audio_device.as_deref()).await {
             let _ = beep::play_error_beep();
-            eprintln!("Training failed: {e}");
+            ui::error(&format!("Training failed: {e}"));
             std::process::exit(1);
         }
         // Register in config
         if let Err(e) = config::save_voice_pattern(name, &action) {
-            eprintln!("Warning: trained but failed to save config: {e}");
+            ui::warn(&format!("Trained but failed to save config: {e}"));
         }
         return;
     }
@@ -235,14 +236,14 @@ async fn main() {
     let _lock = match PidLock::acquire() {
         Ok(lock) => lock,
         Err(e) => {
-            eprintln!("Error: {e}");
+            ui::error(&e);
             std::process::exit(1);
         }
     };
 
     if args.update {
         if let Err(e) = update::update() {
-            eprintln!("Update failed: {e}");
+            ui::error(&format!("Update failed: {e}"));
             std::process::exit(1);
         }
         return;
@@ -252,14 +253,14 @@ async fn main() {
         let file_config = config::ConfigFile::load();
         let patterns = config::load_voice_patterns_from(&file_config);
         if patterns.is_empty() {
-            eprintln!("No voice patterns configured. Train one first.");
+            ui::error("No voice patterns configured. Train one first.");
             std::process::exit(1);
         }
         let sensitivity = config::WakewordSensitivity::parse(&args.wakeword_sensitivity)
             .unwrap_or(config::WakewordSensitivity::Medium);
         if let Err(e) = wakeword::test(&patterns, sensitivity, audio_device.as_deref()).await {
             let _ = beep::play_error_beep();
-            eprintln!("Error: {e}");
+            ui::error(&format!("{e}"));
             std::process::exit(1);
         }
         return;
@@ -270,12 +271,12 @@ async fn main() {
             Ok(config) => {
                 if let Err(e) = wakeword::listen(&config).await {
                     let _ = beep::play_error_beep();
-                    eprintln!("Error: {e}");
+                    ui::error(&format!("{e}"));
                     std::process::exit(1);
                 }
             }
             Err(e) => {
-                eprintln!("Error: {e}");
+                ui::error(&format!("{e}"));
                 std::process::exit(1);
             }
         }
@@ -284,7 +285,7 @@ async fn main() {
 
     if let Err(e) = run(&args).await {
         let _ = beep::play_error_beep();
-        eprintln!("Error: {e}");
+        ui::error(&format!("{e}"));
         std::process::exit(1);
     }
 }

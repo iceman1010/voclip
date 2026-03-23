@@ -11,6 +11,7 @@ use crate::error::VoclipError;
 use crate::keyboard;
 use crate::resample::Resampler;
 use crate::token;
+use crate::ui;
 use crate::websocket;
 
 /// Record voice samples and build a .rpw reference file.
@@ -168,11 +169,11 @@ fn create_detector(
 
     for pattern in patterns {
         if !pattern.path.exists() {
-            eprintln!(
-                "Warning: voice pattern file not found: {} (skipping \"{}\")",
+            ui::warn(&format!(
+                "Voice pattern file not found: {} (skipping \"{}\")",
                 pattern.path.display(),
                 pattern.name
-            );
+            ));
             continue;
         }
         detector
@@ -294,7 +295,8 @@ pub async fn listen(config: &Config) -> Result<(), VoclipError> {
         ));
     }
 
-    eprintln!("Using model: {} ({})", config.model, config.model.description());
+    ui::header();
+    ui::label("Model", &format!("{} ({})", config.model, config.model.description()));
     keyboard::check_keyboard_deps();
 
     let wake_count = trained
@@ -304,7 +306,7 @@ pub async fn listen(config: &Config) -> Result<(), VoclipError> {
     let cmd_count = trained.len() - wake_count;
 
     eprintln!(
-        "Loaded {} wake word(s) and {} command word(s):",
+        "  Loaded {} wake word(s) and {} command word(s):",
         wake_count, cmd_count
     );
     for p in &trained {
@@ -312,9 +314,10 @@ pub async fn listen(config: &Config) -> Result<(), VoclipError> {
             VoiceAction::Transcribe => "Wake word:   ",
             VoiceAction::Key(_) => "Command word:",
         };
-        eprintln!("  {label} \"{}\" → {}", p.name, p.action);
+        eprintln!("    {label} \"{}\" → {}", p.name, p.action);
     }
-    eprintln!("Listening... (Ctrl+C to stop)\n");
+    eprintln!();
+    ui::info("Listening... (Ctrl+C to stop)\n");
 
     let (tx, mut rx) = mpsc::channel::<Vec<i16>>(50);
     let capture = audio_capture::start_capture_with_device(tx, config.audio_device.as_deref())?;
@@ -354,10 +357,10 @@ pub async fn listen(config: &Config) -> Result<(), VoclipError> {
                                         VoiceAction::Transcribe => "Wake word",
                                         VoiceAction::Key(_) => "Command word",
                                     };
-                                    eprintln!(
+                                    ui::success(&format!(
                                         "{label} detected: \"{}\" (score: {:.3})",
                                         p.name, detection.score
-                                    );
+                                    ));
                                     detected = Some(p.clone());
                                     break;
                                 }
@@ -372,7 +375,7 @@ pub async fn listen(config: &Config) -> Result<(), VoclipError> {
                 }
                 _ = &mut ctrl_c => {
                     eprint!("\r\x1b[2K");
-                    eprintln!("Interrupted.");
+                    ui::warn("Interrupted.");
                     break None;
                 }
             }
@@ -392,16 +395,16 @@ pub async fn listen(config: &Config) -> Result<(), VoclipError> {
             VoiceAction::Transcribe => {
                 if let Err(e) = run_transcription(config).await {
                     let _ = beep::play_error_beep();
-                    eprintln!("Transcription error: {e}");
+                    ui::error(&format!("Transcription error: {e}"));
                 }
             }
             VoiceAction::Key(key_name) => {
                 if let Err(e) = beep::play_start_beep() {
-                    eprintln!("Beep failed: {e}");
+                    ui::warn(&format!("Beep failed: {e}"));
                 }
                 match keyboard::press_key(key_name) {
-                    Ok(()) => eprintln!("Pressed: {key_name}"),
-                    Err(e) => eprintln!("Key press error: {e}"),
+                    Ok(()) => ui::success(&format!("Pressed: {key_name}")),
+                    Err(e) => ui::error(&format!("Key press error: {e}")),
                 }
             }
         }
@@ -410,7 +413,8 @@ pub async fn listen(config: &Config) -> Result<(), VoclipError> {
         drain_channel(&mut rx);
         buffer.clear();
 
-        eprintln!("\nListening...\n");
+        eprintln!();
+        ui::info("Listening...\n");
     }
 
     drop(capture);
@@ -425,24 +429,24 @@ fn drain_channel(rx: &mut mpsc::Receiver<Vec<i16>>) {
 /// Run a single transcription cycle: authenticate → capture → transcribe → type output.
 async fn run_transcription(config: &Config) -> Result<(), VoclipError> {
     if let Err(e) = beep::play_start_beep() {
-        eprintln!("Start beep failed: {e}");
+        ui::warn(&format!("Start beep failed: {e}"));
     }
 
-    eprintln!("Authenticating...");
+    ui::dim("Authenticating...");
     let token = token::fetch_token(&config.api_key).await?;
 
     let (audio_tx, audio_rx) = mpsc::channel::<Vec<i16>>(50);
     let capture = audio_capture::start_capture_with_device(audio_tx, config.audio_device.as_deref())?;
     let device_rate = capture.device_sample_rate;
 
-    eprintln!("Connecting...");
+    ui::dim("Connecting...");
     let (ws_tx, ws_rx) =
         websocket::connect(&token, config.timeout, config.model.api_name()).await?;
 
-    eprintln!(
+    ui::info(&format!(
         "Listening... (speak, then wait {}s silence to finish)",
         config.timeout
-    );
+    ));
 
     let result = websocket::stream(ws_tx, ws_rx, device_rate, audio_rx).await?;
 
@@ -451,19 +455,19 @@ async fn run_transcription(config: &Config) -> Result<(), VoclipError> {
     let transcript = result.transcript.trim().to_string();
 
     if transcript.is_empty() {
-        eprintln!("No speech detected.");
+        ui::dim("No speech detected.");
         if let Err(e) = beep::play_stop_beep() {
-            eprintln!("Stop beep failed: {e}");
+            ui::warn(&format!("Stop beep failed: {e}"));
         }
         return Ok(());
     }
 
     // Listen mode always types output
     keyboard::type_text(&transcript)?;
-    eprintln!("Typed: {transcript}");
+    ui::success(&format!("Typed: {transcript}"));
 
     if let Err(e) = beep::play_stop_beep() {
-        eprintln!("Stop beep failed: {e}");
+        ui::warn(&format!("Stop beep failed: {e}"));
     }
 
     Ok(())

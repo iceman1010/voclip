@@ -1,6 +1,6 @@
 [package]
 name = "voclip"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 description = "Voice to clipboard CLI tool"
 
@@ -25,3 +25,4 @@ enigo = "0.6"
 rustpotter = "3.0"
 half = "=2.4.1"
 libc = "0.2"
+crossterm = "0.28"

@@ -3,6 +3,7 @@ use std::thread;
 use std::time::Duration;
 
 use crate::error::VoclipError;
+use crate::ui;
 
 fn command_exists(name: &str) -> bool {
     Command::new("which")
@@ -25,17 +26,17 @@ pub fn check_keyboard_deps() {
 
     if is_wayland {
         if !command_exists("wtype") && !command_exists("ydotool") {
-            eprintln!("Warning: wtype/ydotool not found. Keyboard typing will use enigo fallback.");
+            ui::warn("wtype/ydotool not found. Keyboard typing will use enigo fallback.");
             eprintln!("  Install with: sudo apt install wtype");
             eprintln!("  Or: sudo apt install ydotool");
         }
     } else if is_x11 {
         if !command_exists("xdotool") {
-            eprintln!("Warning: xdotool not found. Keyboard typing will use enigo fallback.");
+            ui::warn("xdotool not found. Keyboard typing will use enigo fallback.");
             eprintln!("  Install with: sudo apt install xdotool");
         }
     } else {
-        eprintln!("Warning: No display server detected. Keyboard typing may not work.");
+        ui::warn("No display server detected. Keyboard typing may not work.");
     }
 }
 

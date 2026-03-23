@@ -2,6 +2,7 @@ use std::process::{Command, Stdio};
 use std::io::Write;
 
 use crate::error::VoclipError;
+use crate::ui;
 
 fn command_exists(name: &str) -> bool {
     Command::new("which")
@@ -24,16 +25,16 @@ pub fn check_clipboard_deps() {
 
     if is_wayland {
         if !command_exists("wl-copy") {
-            eprintln!("Warning: wl-copy not found. Clipboard will not persist after exit.");
+            ui::warn("wl-copy not found. Clipboard will not persist after exit.");
             eprintln!("  Install with: sudo apt install wl-clipboard");
         }
     } else if is_x11 {
         if !command_exists("xclip") && !command_exists("xsel") {
-            eprintln!("Warning: xclip/xsel not found. Clipboard will not persist after exit.");
+            ui::warn("xclip/xsel not found. Clipboard will not persist after exit.");
             eprintln!("  Install with: sudo apt install xclip");
         }
     } else {
-        eprintln!("Warning: No display server detected. Clipboard may not work.");
+        ui::warn("No display server detected. Clipboard may not work.");
     }
 }
 
