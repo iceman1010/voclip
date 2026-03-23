@@ -225,6 +225,10 @@ voclip --update
 
 See the [installer documentation](install/README.md) for setting up a global hotkey to trigger voclip.
 
+## GUI App
+
+Prefer a graphical interface? Check out [voclip-GUI](https://github.com/iceman1010/voclip-GUI) — a companion desktop app that provides a GUI frontend for voclip.
+
 ## Supported Platforms
 
 | Platform | Audio | Clipboard | Keyboard Typing | Notes |
