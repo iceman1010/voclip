@@ -1,6 +1,10 @@
-# voclip
+<p align="center">
+  <img src="favicon/android-chrome-192x192.png" alt="voclip icon" width="128">
+</p>
 
-Voice to clipboard — speak and paste. A CLI tool that listens to your microphone, streams audio to AssemblyAI for real-time transcription, and copies the final transcript to your clipboard or types it directly via keyboard simulation.
+<h1 align="center">voclip</h1>
+
+<p align="center">Voice to clipboard — speak and paste.</p> A CLI tool that listens to your microphone, streams audio to AssemblyAI for real-time transcription, and copies the final transcript to your clipboard or types it directly via keyboard simulation.
 
 Includes local wake word detection — say a custom phrase (e.g., "hey voclip") and it starts transcribing hands-free. You can also train **command words** that trigger keyboard actions like pressing Enter or Backspace. No UI, no browser — just run `voclip`, speak, and paste.
 
@@ -135,6 +139,8 @@ Options:
   --wakeword-sensitivity <LEVEL>  Detection sensitivity: low, medium, high, or a number (default: medium)
   --list-wakewords                List all configured wake word and command words
   --remove-wakeword <NAME>        Remove a trained voice pattern by name
+  --list-devices                  List available audio input devices
+  --audio-device <NAME>           Audio input device (substring match, saved to config)
   --list-models                   List available speech models
   --set-default-model <MODEL>     Save default speech model to config
   --set-default-timeout <SECS>    Save default timeout to config
