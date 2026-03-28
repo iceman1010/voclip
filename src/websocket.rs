@@ -21,9 +21,9 @@ pub struct WsResult {
     pub transcript: String,
 }
 
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use futures_util::stream::{SplitSink, SplitStream};
 use tokio::net::TcpStream;
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 type WsTx = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>;
 type WsRx = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;

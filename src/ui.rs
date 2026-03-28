@@ -39,4 +39,3 @@ pub fn label(key: &str, value: &str) {
 pub fn dim(msg: &str) {
     eprintln!("{}", msg.dim());
 }
-

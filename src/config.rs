@@ -1,4 +1,5 @@
 use std::fmt;
+use std::io::{self, Write};
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -112,6 +113,10 @@ pub struct Args {
     /// Audio input device name (substring match, saved to config if used alone)
     #[arg(long)]
     pub audio_device: Option<String>,
+
+    /// Set or update the AssemblyAI API key
+    #[arg(long)]
+    pub apikey: bool,
 }
 
 // --- Voice pattern types ---
@@ -273,8 +278,7 @@ impl Config {
         let file_config = ConfigFile::load();
 
         let model = if let Some(ref name) = args.model {
-            SpeechModel::from_name(name)
-                .ok_or_else(|| VoclipError::InvalidModel(name.clone()))?
+            SpeechModel::from_name(name).ok_or_else(|| VoclipError::InvalidModel(name.clone()))?
         } else {
             match file_config.default_model {
                 Some(ref name) => SpeechModel::from_name(name).unwrap_or(SpeechModel::U3RtPro),
@@ -340,8 +344,7 @@ pub fn load_voice_patterns_from(file_config: &ConfigFile) -> Vec<VoicePattern> {
                     .as_ref()
                     .map(PathBuf::from)
                     .unwrap_or_else(|| voice_pattern_path_for_name(&entry.name));
-                let action = VoiceAction::parse(&entry.action)
-                    .unwrap_or(VoiceAction::Transcribe);
+                let action = VoiceAction::parse(&entry.action).unwrap_or(VoiceAction::Transcribe);
                 VoicePattern {
                     name: entry.name.clone(),
                     path,
@@ -452,8 +455,17 @@ pub fn list_voice_patterns() {
     if !wake_words.is_empty() {
         println!("  Wake word:");
         for p in &wake_words {
-            let status = if p.path.exists() { "trained" } else { "not trained" };
-            println!("    {:<20} {:<18} ({})", format!("\"{}\"", p.name), p.action, status);
+            let status = if p.path.exists() {
+                "trained"
+            } else {
+                "not trained"
+            };
+            println!(
+                "    {:<20} {:<18} ({})",
+                format!("\"{}\"", p.name),
+                p.action,
+                status
+            );
         }
     }
 
@@ -463,8 +475,17 @@ pub fn list_voice_patterns() {
         }
         println!("  Command words:");
         for p in &commands {
-            let status = if p.path.exists() { "trained" } else { "not trained" };
-            println!("    {:<20} {:<18} ({})", format!("\"{}\"", p.name), p.action, status);
+            let status = if p.path.exists() {
+                "trained"
+            } else {
+                "not trained"
+            };
+            println!(
+                "    {:<20} {:<18} ({})",
+                format!("\"{}\"", p.name),
+                p.action,
+                status
+            );
         }
     }
 }
@@ -472,8 +493,8 @@ pub fn list_voice_patterns() {
 // --- Other settings ---
 
 pub fn save_default_model(name: &str) -> Result<SpeechModel, VoclipError> {
-    let model = SpeechModel::from_name(name)
-        .ok_or_else(|| VoclipError::InvalidModel(name.to_string()))?;
+    let model =
+        SpeechModel::from_name(name).ok_or_else(|| VoclipError::InvalidModel(name.to_string()))?;
     let mut config = ConfigFile::load();
     config.default_model = Some(model.cli_name().to_string());
     config.save()?;
@@ -490,6 +511,60 @@ pub fn save_audio_device(name: &str) -> Result<(), VoclipError> {
     let mut config = ConfigFile::load();
     config.audio_device = Some(name.to_string());
     config.save()
+}
+
+pub fn prompt_and_save_api_key() -> Result<bool, VoclipError> {
+    let _ = dotenvy::dotenv();
+    if let Some(config_dir) = dirs_next::config_dir() {
+        let _ = dotenvy::from_path(config_dir.join("voclip").join(".env"));
+    }
+
+    let existing_key = std::env::var("ASSEMBLYAI_API_KEY").ok();
+
+    if existing_key.is_some() {
+        print!("An API key already exists. Overwrite it? (y/N): ");
+    } else {
+        print!("No API key found. Continue to set one? (y/N): ");
+    }
+
+    io::stdout()
+        .flush()
+        .map_err(|e| VoclipError::Config(e.to_string()))?;
+
+    let mut answer = String::new();
+    io::stdin()
+        .read_line(&mut answer)
+        .map_err(|e| VoclipError::Config(e.to_string()))?;
+    if !answer.trim().eq_ignore_ascii_case("y") {
+        return Ok(false);
+    }
+
+    print!("Enter your AssemblyAI API key: ");
+    io::stdout()
+        .flush()
+        .map_err(|e| VoclipError::Config(e.to_string()))?;
+
+    let mut api_key = String::new();
+    io::stdin()
+        .read_line(&mut api_key)
+        .map_err(|e| VoclipError::Config(e.to_string()))?;
+    let api_key = api_key.trim().to_string();
+
+    if api_key.is_empty() {
+        return Err(VoclipError::Config("API key cannot be empty".to_string()));
+    }
+
+    let config_dir = dirs_next::config_dir().unwrap_or_else(|| PathBuf::from("."));
+    let env_path = config_dir.join("voclip").join(".env");
+
+    if let Some(parent) = env_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| VoclipError::Config(e.to_string()))?;
+    }
+
+    let content = format!("ASSEMBLYAI_API_KEY={}\n", api_key);
+    std::fs::write(&env_path, content).map_err(|e| VoclipError::Config(e.to_string()))?;
+
+    Ok(true)
 }
 
 pub fn print_models() {

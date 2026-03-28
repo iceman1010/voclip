@@ -112,11 +112,19 @@ Then open a new PowerShell window.
 
 #### Alternative: .env file (all platforms)
 
-Create a `.env` file in the directory you run voclip from:
+Create a `.env` file in the directory you run voclip from, or at `~/.config/voclip/.env`:
 
 ```
 ASSEMBLYAI_API_KEY=your_key_here
 ```
+
+Or use the interactive command:
+
+```bash
+voclip --apikey
+```
+
+This will prompt you to enter and save your API key.
 
 ## Usage
 
@@ -144,6 +152,7 @@ Options:
   --list-models                   List available speech models
   --set-default-model <MODEL>     Save default speech model to config
   --set-default-timeout <SECS>    Save default timeout to config
+  --apikey                        Set or update the API key interactively
   --update                        Check for updates and self-update
   --version                       Print version
   -h, --help                      Print help

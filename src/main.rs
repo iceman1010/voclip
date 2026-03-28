@@ -123,6 +123,23 @@ async fn main() {
         }
     }
 
+    if args.apikey {
+        match config::prompt_and_save_api_key() {
+            Ok(true) => {
+                println!("API key saved to ~/.config/voclip/.env");
+                return;
+            }
+            Ok(false) => {
+                println!("API key unchanged.");
+                return;
+            }
+            Err(e) => {
+                ui::error(&format!("{e}"));
+                std::process::exit(1);
+            }
+        }
+    }
+
     if let Some(ref name) = args.remove_wakeword {
         match config::remove_voice_pattern(name) {
             Ok(true) => {
@@ -188,8 +205,13 @@ async fn main() {
     // Train wake word
     if args.train_wakeword {
         let path = config::voice_pattern_path_for_name(&args.wakeword_name);
-        if let Err(e) =
-            wakeword::train(&args.wakeword_name, args.wakeword_samples, &path, audio_device.as_deref()).await
+        if let Err(e) = wakeword::train(
+            &args.wakeword_name,
+            args.wakeword_samples,
+            &path,
+            audio_device.as_deref(),
+        )
+        .await
         {
             let _ = beep::play_error_beep();
             ui::error(&format!("Training failed: {e}"));
@@ -221,7 +243,9 @@ async fn main() {
         };
 
         let path = config::voice_pattern_path_for_name(name);
-        if let Err(e) = wakeword::train(name, args.wakeword_samples, &path, audio_device.as_deref()).await {
+        if let Err(e) =
+            wakeword::train(name, args.wakeword_samples, &path, audio_device.as_deref()).await
+        {
             let _ = beep::play_error_beep();
             ui::error(&format!("Training failed: {e}"));
             std::process::exit(1);
@@ -293,7 +317,11 @@ async fn main() {
 async fn run(args: &config::Args) -> Result<(), VoclipError> {
     let config = Config::load(args)?;
 
-    eprintln!("Using model: {} ({})", config.model, config.model.description());
+    eprintln!(
+        "Using model: {} ({})",
+        config.model,
+        config.model.description()
+    );
 
     match config.output_mode {
         config::OutputMode::Clipboard => clipboard::check_clipboard_deps(),
@@ -304,25 +332,25 @@ async fn run(args: &config::Args) -> Result<(), VoclipError> {
     let token = token::fetch_token(&config.api_key).await?;
 
     let (audio_tx, audio_rx) = tokio::sync::mpsc::channel::<Vec<i16>>(50);
-    let capture = audio_capture::start_capture_with_device(audio_tx, config.audio_device.as_deref())?;
+    let capture =
+        audio_capture::start_capture_with_device(audio_tx, config.audio_device.as_deref())?;
     let device_rate = capture.device_sample_rate;
 
     eprintln!("Recording starts in {}s...", config.delay);
     tokio::time::sleep(std::time::Duration::from_secs(config.delay as u64)).await;
 
     eprintln!("Connecting...");
-    let (ws_tx, ws_rx) = websocket::connect(
-        &token,
-        config.timeout,
-        config.model.api_name(),
-    )
-    .await?;
+    let (ws_tx, ws_rx) =
+        websocket::connect(&token, config.timeout, config.model.api_name()).await?;
 
     if let Err(e) = beep::play_start_beep() {
         eprintln!("Start beep failed: {e}");
     }
 
-    eprintln!("Listening... (speak, then wait {}s silence to finish, or Ctrl+C)", config.timeout);
+    eprintln!(
+        "Listening... (speak, then wait {}s silence to finish, or Ctrl+C)",
+        config.timeout
+    );
 
     let result = websocket::stream(ws_tx, ws_rx, device_rate, audio_rx).await?;
 

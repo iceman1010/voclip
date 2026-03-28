@@ -101,9 +101,7 @@ pub fn press_key(key_name: &str) -> Result<(), VoclipError> {
 
 fn try_cli_key_press(key_name: &str) -> bool {
     // Wayland: wtype -k <key>
-    if std::env::var("WAYLAND_DISPLAY").is_ok()
-        && try_command("wtype", &["-k", key_name])
-    {
+    if std::env::var("WAYLAND_DISPLAY").is_ok() && try_command("wtype", &["-k", key_name]) {
         return true;
     }
 

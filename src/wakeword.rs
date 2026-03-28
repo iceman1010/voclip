@@ -61,11 +61,10 @@ pub async fn train(
             .map_err(|e| VoclipError::WakeWord(format!("Failed to create directory: {e}")))?;
     }
 
-    let path_str = wakeword_path.to_str().ok_or_else(|| {
-        VoclipError::WakeWord("Invalid path".to_string())
-    })?;
-    rustpotter::WakewordSave::save_to_file(&wakeword, path_str)
-        .map_err(VoclipError::WakeWord)?;
+    let path_str = wakeword_path
+        .to_str()
+        .ok_or_else(|| VoclipError::WakeWord("Invalid path".to_string()))?;
+    rustpotter::WakewordSave::save_to_file(&wakeword, path_str).map_err(VoclipError::WakeWord)?;
 
     eprintln!("Saved to: {}", wakeword_path.display());
 
@@ -75,9 +74,7 @@ pub async fn train(
 async fn read_stdin_line() -> Result<String, VoclipError> {
     tokio::task::spawn_blocking(|| {
         let mut buf = String::new();
-        std::io::stdin()
-            .read_line(&mut buf)
-            .map(|_| buf)
+        std::io::stdin().read_line(&mut buf).map(|_| buf)
     })
     .await
     .map_err(|e| VoclipError::WakeWord(format!("Failed to read stdin: {e}")))?
@@ -177,10 +174,7 @@ fn create_detector(
             continue;
         }
         detector
-            .add_wakeword_from_file(
-                &pattern.name,
-                pattern.path.to_str().unwrap_or_default(),
-            )
+            .add_wakeword_from_file(&pattern.name, pattern.path.to_str().unwrap_or_default())
             .map_err(|e| {
                 VoclipError::WakeWord(format!(
                     "Failed to load voice pattern \"{}\": {e}",
@@ -196,7 +190,10 @@ fn create_detector(
 /// Rustpotter's detection.name is the internal .rpw training name, which may differ
 /// from the configured pattern name (e.g., legacy files trained as "hey voclip" but
 /// renamed to "Computer" in config). Falls back to first loaded pattern if no exact match.
-fn find_pattern<'a>(patterns: &'a [VoicePattern], detection_name: &str) -> Option<&'a VoicePattern> {
+fn find_pattern<'a>(
+    patterns: &'a [VoicePattern],
+    detection_name: &str,
+) -> Option<&'a VoicePattern> {
     patterns
         .iter()
         .find(|p| p.name == detection_name)
@@ -296,7 +293,10 @@ pub async fn listen(config: &Config) -> Result<(), VoclipError> {
     }
 
     ui::header();
-    ui::label("Model", &format!("{} ({})", config.model, config.model.description()));
+    ui::label(
+        "Model",
+        &format!("{} ({})", config.model, config.model.description()),
+    );
     keyboard::check_keyboard_deps();
 
     let wake_count = trained
@@ -323,10 +323,7 @@ pub async fn listen(config: &Config) -> Result<(), VoclipError> {
     let capture = audio_capture::start_capture_with_device(tx, config.audio_device.as_deref())?;
     let device_rate = capture.device_sample_rate;
 
-    let mut detector = create_detector(
-        &config.voice_patterns,
-        config.wakeword_sensitivity,
-    )?;
+    let mut detector = create_detector(&config.voice_patterns, config.wakeword_sensitivity)?;
     let samples_per_frame = detector.get_samples_per_frame();
     let mut buffer: Vec<i16> = Vec::new();
     let mut resampler = Resampler::new(device_rate, DETECT_SAMPLE_RATE);
@@ -436,7 +433,8 @@ async fn run_transcription(config: &Config) -> Result<(), VoclipError> {
     let token = token::fetch_token(&config.api_key).await?;
 
     let (audio_tx, audio_rx) = mpsc::channel::<Vec<i16>>(50);
-    let capture = audio_capture::start_capture_with_device(audio_tx, config.audio_device.as_deref())?;
+    let capture =
+        audio_capture::start_capture_with_device(audio_tx, config.audio_device.as_deref())?;
     let device_rate = capture.device_sample_rate;
 
     ui::dim("Connecting...");
