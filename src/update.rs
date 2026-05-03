@@ -1,5 +1,7 @@
 use self_update::cargo_crate_version;
 use std::env;
+use std::fs;
+use std::process::Command;
 
 pub fn update() -> Result<(), Box<dyn std::error::Error>> {
     let target = match env::consts::OS {
@@ -19,6 +21,10 @@ pub fn update() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Checking for updates...");
 
+    let current_exe = env::current_exe()?;
+    let backup_path = current_exe.with_extension("bak");
+    fs::copy(&current_exe, &backup_path)?;
+
     let status = self_update::backends::github::Update::configure()
         .repo_owner("iceman1010")
         .repo_name("voclip")
@@ -28,6 +34,22 @@ pub fn update() -> Result<(), Box<dyn std::error::Error>> {
         .build()?
         .update()?;
 
-    println!("Update status: `{}`!", status.version());
+    let test = Command::new(&current_exe).arg("--version").output();
+
+    match test {
+        Ok(output) if output.status.success() => {
+            let _ = fs::remove_file(&backup_path);
+            println!("Update status: `{}`!", status.version());
+        }
+        _ => {
+            eprintln!("Warning: updated binary is incompatible with this system.");
+            eprintln!("Restoring previous version...");
+            fs::copy(&backup_path, &current_exe)?;
+            let _ = fs::remove_file(&backup_path);
+            eprintln!("Previous version restored. Consider building from source instead.");
+            std::process::exit(1);
+        }
+    }
+
     Ok(())
 }
