@@ -98,7 +98,12 @@ async fn main() {
     }
 
     if let Some(ref name) = args.set_default_model {
-        match config::save_default_model(name) {
+        let result = if name.eq_ignore_ascii_case("list") {
+            config::prompt_and_save_default_model()
+        } else {
+            config::save_default_model(name)
+        };
+        match result {
             Ok(model) => {
                 println!("Default model set to: {} ({})", model, model.description());
                 return;

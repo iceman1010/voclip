@@ -150,7 +150,7 @@ Options:
   --list-devices                  List available audio input devices
   --audio-device <NAME>           Audio input device (substring match, saved to config)
   --list-models                   List available speech models
-  --set-default-model <MODEL>     Save default speech model to config
+  --set-default-model <MODEL>     Save default speech model to config (use "list" to pick interactively)
   --set-default-timeout <SECS>    Save default timeout to config
   --apikey                        Set or update the API key interactively
   --update                        Check for updates and self-update

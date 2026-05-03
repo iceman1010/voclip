@@ -50,7 +50,7 @@ pub struct Args {
     #[arg(long)]
     pub list_models: bool,
 
-    /// Set the default speech model and save to config
+    /// Set the default speech model and save to config (use "list" to pick interactively)
     #[arg(long)]
     pub set_default_model: Option<String>,
 
@@ -501,6 +501,48 @@ pub fn save_default_model(name: &str) -> Result<SpeechModel, VoclipError> {
     Ok(model)
 }
 
+pub fn prompt_and_save_default_model() -> Result<SpeechModel, VoclipError> {
+    let models = SpeechModel::all();
+    println!("Available speech models:\n");
+    for (i, model) in models.iter().enumerate() {
+        println!(
+            "  {}: {:<18} {}",
+            i + 1,
+            model.cli_name(),
+            model.description()
+        );
+    }
+    println!();
+    print!("Choose a model (1-{}): ", models.len());
+    io::stdout()
+        .flush()
+        .map_err(|e| VoclipError::Config(e.to_string()))?;
+
+    let mut input = String::new();
+    io::stdin()
+        .read_line(&mut input)
+        .map_err(|e| VoclipError::Config(e.to_string()))?;
+
+    let choice: usize = input
+        .trim()
+        .parse()
+        .ok()
+        .and_then(|n: usize| {
+            if n >= 1 && n <= models.len() {
+                Some(n)
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| VoclipError::Config("Invalid choice".to_string()))?;
+
+    let model = models[choice - 1];
+    let mut config = ConfigFile::load();
+    config.default_model = Some(model.cli_name().to_string());
+    config.save()?;
+    Ok(model)
+}
+
 pub fn save_default_timeout(secs: u32) -> Result<(), VoclipError> {
     let mut config = ConfigFile::load();
     config.default_timeout = Some(secs);
@@ -575,4 +617,5 @@ pub fn print_models() {
     println!();
     println!("Use --model <name> to select for one run.");
     println!("Use --set-default-model <name> to save as default.");
+    println!("Use --set-default-model list to pick interactively.");
 }

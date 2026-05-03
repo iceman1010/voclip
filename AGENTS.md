@@ -1,7 +1,3 @@
-# Agent Instructions for voclip
-
-This document provides guidance for AI coding agents working on the voclip codebase.
-
 ## Project Overview
 
 voclip is a Rust CLI tool that captures microphone audio, streams it to AssemblyAI for real-time transcription, and copies the transcript to the clipboard. Supports Linux (X11/Wayland), macOS, and Windows.
