@@ -164,3 +164,7 @@ src/
 - Releases via GitHub Actions (`.github/workflows/release.yml`)
 - Config: `~/.config/voclip/config.toml`
 - API key: `ASSEMBLYAI_API_KEY` env var or `.env` file
+
+## CRITICAL: Cross-Platform Compatibility
+
+This app MUST work on Linux, macOS, **and Windows**. Even though development is on Linux, every change must consider all platforms. In CI workflows, always add `shell: bash` to `run:` steps — Windows runners default to PowerShell. Never assume bash-only tools or syntax.
